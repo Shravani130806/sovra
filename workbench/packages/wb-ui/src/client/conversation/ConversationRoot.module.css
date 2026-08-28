@@ -30,12 +30,8 @@
 }
 
 .modelIndicator {
-  font-size: 13px;
-  color: var(--dsh-theme-text-secondary, #999);
-  background-color: var(--dsh-theme-bg-surface, #1e1e1e);
-  padding: 6px 12px;
-  border-radius: 16px;
-  border: 1px solid var(--dsh-theme-border, #333);
+  display: flex;
+  align-items: center;
 }
 
 .messageList {

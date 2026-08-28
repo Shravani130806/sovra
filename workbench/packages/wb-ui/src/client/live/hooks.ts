@@ -16,6 +16,7 @@ import { getChatState, subscribeChat } from './chat-store.ts'
 import { getDocumentsState, subscribeDocuments } from './documents-store.ts'
 import { getVisionState, subscribeVision } from './vision-store.ts'
 import { getNavigationState, subscribeNavigation } from './navigation-store.ts'
+import { getModelsState, subscribeModels } from './models-store.ts'
 
 function useWorkbench() {
   return useSyncExternalStore(subscribeWorkbench, getWorkbenchState, getWorkbenchState)
@@ -62,4 +63,9 @@ export function useVision() {
 /** Which panel is showing, and what it is focused on. */
 export function useNavigation() {
   return useSyncExternalStore(subscribeNavigation, getNavigationState, getNavigationState)
+}
+
+/** Available models, current selection, and Ollama configuration. */
+export function useModels() {
+  return useSyncExternalStore(subscribeModels, getModelsState, getModelsState)
 }

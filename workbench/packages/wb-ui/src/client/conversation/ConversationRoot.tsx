@@ -3,6 +3,7 @@ import styles from './ConversationRoot.module.css'
 import { ChatComposer } from './ChatComposer.tsx'
 import { ChatHomeView } from './ChatHomeView.tsx'
 import { MessageList } from './MessageList.tsx'
+import { ModelSelector } from './ModelSelector.tsx'
 import { DocumentsView } from '../documents/DocumentsView.tsx'
 import { DocumentViewer } from '../documents/DocumentViewer.tsx'
 import { EngineeringVisionView } from '../vision/EngineeringVisionView.tsx'
@@ -11,7 +12,7 @@ import { SecurityConsoleView } from '../security/SecurityConsoleView.tsx'
 import { SettingsView } from '../settings/SettingsView.tsx'
 import { SearchView } from '../search/SearchView.tsx'
 import { useChat, useNavigation } from '../live/hooks.ts'
-import { startTurn } from '../live/chat-store.ts'
+import { dispatchTurnToModel } from '../live/chat-store.ts'
 
 const PRESET_META: Record<string, { title: string; desc: string }> = {
   'document-analyst': { title: 'Document Analyst', desc: 'Analyze reports and internal documents' },
@@ -31,7 +32,7 @@ export function ConversationRoot(_props: ConvOwnerProps) {
   }
 
   function handleSend(text: string, attachments?: string[]) {
-    startTurn(text, new AbortController(), attachments)
+    void dispatchTurnToModel(text, new AbortController(), attachments)
   }
 
   // Routing switch
@@ -58,7 +59,7 @@ export function ConversationRoot(_props: ConvOwnerProps) {
               <div className={styles.presetDesc}>{meta.desc}</div>
             </div>
             <div className={styles.modelIndicator}>
-              <span>Model: Auto-selected</span>
+              <ModelSelector />
             </div>
           </div>
 

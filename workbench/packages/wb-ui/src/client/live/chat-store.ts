@@ -3,12 +3,13 @@
  *
  * Holds what the composer and message list render. Like the other stores here,
  * it is a plain observable the host bridge publishes into — `wb-ui` runs in the
- * browser and cannot reach `ctx`, so the transport owns the session stream and
- * this owns only what is on screen.
+ * browser and directly streams turns via the configured sovereign model runtime
+ * or transport bridge.
  * @module @mrpl/dsh-workbench-ui/client/live/chat-store
  */
 
 import type { WbCitation, WbDecisionKind } from '@mrpl/dsh-workbench-types'
+import { getModelsState, selectModel, type ModelSelection } from './models-store.ts'
 
 const STORAGE_KEY = 'sovra_wb_chat_v1'
 
@@ -40,6 +41,8 @@ export interface Turn {
   citations: WbCitation[]
   /** True while the assistant turn is still streaming. */
   streaming: boolean
+  /** Model that served this turn */
+  model?: string | undefined
 }
 
 /** A conversation session in chat history. */
@@ -48,6 +51,7 @@ export interface ChatSession {
   title: string
   preset: string
   turns: Turn[]
+  selectedModel?: ModelSelection | undefined
   createdAt: string
   updatedAt: string
 }
@@ -85,7 +89,7 @@ function loadPersistedChat(): ChatState {
         ...INITIAL_CHAT,
         activeSessionId: active.id,
         sessions: parsed.sessions,
-        turns: active.turns ?? [],
+        turns: (active.turns ?? []).map((t) => ({ ...t, streaming: false })),
         preset: active.preset ?? 'document-analyst',
       }
     }
@@ -164,8 +168,7 @@ const nextSessionId = (): string => `sess-${++sessionCounter}-${Date.now().toStr
  * Append the user's message and open the assistant turn it will be answered in.
  *
  * Both turns are created together so the message list never shows a question
- * with no visible response forming — the empty assistant turn IS the pending
- * indicator, rather than a separate spinner that could desynchronise from it.
+ * with no visible response forming.
  * @param text - the user's message.
  * @param abort - the controller the transport will honour for Stop.
  * @param attachments - optional list of attached file names.
@@ -173,6 +176,7 @@ const nextSessionId = (): string => `sess-${++sessionCounter}-${Date.now().toStr
  */
 export function startTurn(text: string, abort: AbortController, attachments?: string[]): string {
   const assistantId = nextId()
+  const activeModel = getModelsState().current
   const nextTurns: Turn[] = [
     ...state.turns,
     {
@@ -184,7 +188,15 @@ export function startTurn(text: string, abort: AbortController, attachments?: st
       citations: [],
       streaming: false,
     },
-    { id: assistantId, role: 'assistant', text: '', tools: [], citations: [], streaming: true },
+    {
+      id: assistantId,
+      role: 'assistant',
+      text: '',
+      tools: [],
+      citations: [],
+      streaming: true,
+      model: activeModel ? `${activeModel.provider}/${activeModel.model}` : undefined,
+    },
   ]
 
   // Update or register session in history
@@ -198,6 +210,7 @@ export function startTurn(text: string, abort: AbortController, attachments?: st
       title,
       preset: state.preset,
       turns: nextTurns,
+      selectedModel: activeModel ?? undefined,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
@@ -208,6 +221,7 @@ export function startTurn(text: string, abort: AbortController, attachments?: st
       ...existing,
       title: existing.turns.length === 0 ? title : existing.title,
       turns: nextTurns,
+      selectedModel: activeModel ?? existing.selectedModel,
       updatedAt: new Date().toISOString(),
     }
     sessions = state.sessions.slice()
@@ -222,6 +236,96 @@ export function startTurn(text: string, abort: AbortController, attachments?: st
     sessions,
   })
   return assistantId
+}
+
+/**
+ * Dispatch prompt to local Ollama inference API with streaming.
+ */
+export async function dispatchTurnToModel(text: string, abort: AbortController, attachments?: string[]): Promise<void> {
+  startTurn(text, abort, attachments)
+
+  const modelsState = getModelsState()
+  const current = modelsState.current
+  const endpoint = modelsState.ollamaEndpoint.replace(/\/+$/, '')
+  const provider = current?.provider ?? 'ollama'
+  const modelName = current?.model ?? 'qwen3.5:2b'
+
+  // If provider is not Ollama or custom, format completion via Ollama /v1 endpoint
+  const url = endpoint.endsWith('/v1') ? `${endpoint}/chat/completions` : `${endpoint}/v1/chat/completions`
+
+  try {
+    const messages = [
+      ...state.turns
+        .filter((t) => t.text.trim() !== '')
+        .map((t) => ({
+          role: t.role,
+          content: t.text,
+        })),
+    ]
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream, application/json',
+      },
+      body: JSON.stringify({
+        model: modelName,
+        messages,
+        stream: true,
+      }),
+      signal: abort.signal,
+    })
+
+    if (!res.ok) {
+      throw new Error(`Model request failed with HTTP ${res.status}: ${res.statusText}`)
+    }
+
+    if (!res.body) {
+      throw new Error('No response body returned from model endpoint')
+    }
+
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder('utf-8')
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed || trimmed === 'data: [DONE]') continue
+        if (trimmed.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(trimmed.slice(6)) as {
+              choices?: Array<{
+                delta?: { content?: string; reasoning?: string }
+                text?: string
+              }>
+            }
+            const delta = data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.text ?? ''
+            if (delta) {
+              appendDelta(delta)
+            }
+          } catch {
+            // Ignore partial/unparseable SSE chunks
+          }
+        }
+      }
+    }
+
+    finishTurn()
+  } catch (err: unknown) {
+    if (abort.signal.aborted) {
+      return
+    }
+    const msg = err instanceof Error ? err.message : String(err)
+    finishTurn(`[Error: Unable to complete turn with ${provider}/${modelName} — ${msg}]`)
+  }
 }
 
 /**
@@ -320,6 +424,9 @@ export function newChat(): void {
 export function switchSession(sessionId: string): void {
   const target = state.sessions.find((s) => s.id === sessionId)
   if (!target) return
+  if (target.selectedModel) {
+    void selectModel(target.selectedModel)
+  }
   commit({
     ...state,
     activeSessionId: target.id,
