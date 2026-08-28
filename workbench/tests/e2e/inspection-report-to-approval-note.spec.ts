@@ -1,7 +1,7 @@
 import { describe, expect, it, afterEach } from 'vitest'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { compose, SESSION, testUser, type Composed } from '../harness.ts'
+import { ADMIN_SESSION, compose, SESSION, testUser, type Composed } from '../harness.ts'
 
 /**
  * §10 scenario: scanned inspection report -> ingestion -> OCR -> retrieval ->
@@ -26,7 +26,9 @@ describe('e2e: inspection report to approval note', () => {
     const documentId = await ctx.wbIngestion.enqueue({
       path: sop,
       declaredClassification: 'CONFIDENTIAL',
-    })
+      user: testUser().id,
+      sessionId: SESSION,
+      })
     expect(documentId).toBeTruthy()
 
     // 2. OCR over the scanned report page, through the real vision service
@@ -70,10 +72,14 @@ describe('e2e: inspection report to approval note', () => {
   it('an artifact cannot be built from zero evidence', async () => {
     // wb-artifacts' report/approval-note tools require >= 1 citation; this
     // guards the product claim that an "evidence-backed" artifact has evidence.
-    c = await compose({ sessions: { [SESSION]: testUser({ clearance: 'PUBLIC' }) } })
+    // Loading the corpus is itself governed now, so a cleared operator seeds
+    // it and the PUBLIC principal only queries.
+    c = await compose({
+      sessions: { [SESSION]: testUser({ clearance: 'PUBLIC' }), },
+    })
     const sop = join(c.home, 'restricted.txt')
     writeFileSync(sop, 'RESTRICTED drawing notes.')
-    await c.ctx.wbIngestion.enqueue({ path: sop, declaredClassification: 'RESTRICTED' })
+    await c.ctx.wbIngestion.enqueue({ path: sop, declaredClassification: 'RESTRICTED', user: testUser().id, sessionId: ADMIN_SESSION })
     const retrieved = await c.ctx.wbRag.retrieve('drawing', testUser({ clearance: 'PUBLIC' }), SESSION)
     expect(retrieved.citations).toHaveLength(0)
     expect(retrieved.filtered.length).toBeGreaterThan(0)

@@ -19,6 +19,7 @@ import {
   type WbIngestionCompletedEvent,
   type WbDocumentId,
   type WbClassification,
+  type WbIngestFile,
   type WbVisionService,
   type WbModelGatewayService,
   type WbPolicyService,
@@ -28,6 +29,8 @@ import * as crypto from 'node:crypto'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 
 import { type IngestionConfig, type IndexChunk } from './types.ts'
+import { extractOfficeText, isOfficeType } from './office.ts'
+import { classificationRank, suggestClassification } from './classify.ts'
 
 // ---------------------------------------------------------------------------
 // Declaration merges
@@ -162,7 +165,7 @@ function createService(ctx: Context, config: IngestionConfig): WbIngestionServic
   )
 
   return {
-    async enqueue(file): Promise<WbDocumentId> {
+    async enqueue(file: WbIngestFile): Promise<WbDocumentId> {
       // 1. Validate file exists
       if (!fs.existsSync(file.path)) {
         throw new Error(`File not found: ${file.path}`)
@@ -195,6 +198,22 @@ function createService(ctx: Context, config: IngestionConfig): WbIngestionServic
         throw new Error(`Cannot parse file: unsupported format (${mime})`)
       }
 
+      // 4b. Authorize the upload itself. §6 lists wb-policy as a dependency of
+      // this plugin; before `ingest_document` existed there was no valid
+      // request to build, so it injected policy and never called it and every
+      // upload was ungoverned.
+      const decision = await ctx.wbPolicy.evaluate({
+        user: file.user,
+        sessionId: file.sessionId,
+        agentPreset: file.agentPreset ?? 'unknown',
+        action: 'ingest_document',
+        classification: file.declaredClassification,
+        destination: 'local',
+      })
+      if (decision.decision !== 'ALLOW') {
+        throw new Error(`ingestion denied: ${decision.decision} — ${decision.reason}`)
+      }
+
       // 5. Assign document ID
       const documentId = asWbDocumentId(crypto.randomUUID())
 
@@ -205,6 +224,7 @@ function createService(ctx: Context, config: IngestionConfig): WbIngestionServic
       let textChunks: string[] = []
       let title = file.path.split('/').pop() ?? 'unknown'
 
+      let documentText: string
       if (isImageType(mime)) {
         // Image/PDF → OCR via wb-vision
         const buffer = fs.readFileSync(file.path)
@@ -212,19 +232,31 @@ function createService(ctx: Context, config: IngestionConfig): WbIngestionServic
           buffer,
           'Extract all text from this document via OCR. Preserve structure and formatting.',
         )
-        const ocrText = String(ocrResult.text ?? '')
-        if (ocrText.length === 0) {
+        documentText = String(ocrResult.text ?? '')
+        if (documentText.length === 0) {
           throw new Error('OCR produced no text output')
         }
-        textChunks = chunkText(ocrText, config.chunkSize, config.chunkOverlap)
+      } else if (isOfficeType(mime)) {
+        // OOXML → unzip the archive and read its XML parts. Reading these as
+        // UTF-8 decodes compressed binary into mojibake, which then chunks and
+        // indexes cleanly as unsearchable noise — a silent corpus corruption.
+        documentText = await extractOfficeText(fs.readFileSync(file.path), mime)
       } else {
         // Text → direct read
-        const content = fs.readFileSync(file.path, 'utf-8')
-        if (content.trim().length === 0) {
+        documentText = fs.readFileSync(file.path, 'utf-8')
+        if (documentText.trim().length === 0) {
           throw new Error('File is empty')
         }
-        textChunks = chunkText(content, config.chunkSize, config.chunkOverlap)
       }
+
+      // 6b. Auto-classification may only RAISE the declared band (§6.8, and
+      // §9 invariant 6). A suggestion below the declared value is discarded.
+      const suggested = suggestClassification(documentText, mime)
+      if (suggested && classificationRank(suggested) > classificationRank(finalClassification)) {
+        finalClassification = suggested
+      }
+
+      textChunks = chunkText(documentText, config.chunkSize, config.chunkOverlap)
 
       if (textChunks.length === 0) {
         throw new Error('No chunks produced from document')

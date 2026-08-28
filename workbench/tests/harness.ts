@@ -88,6 +88,16 @@ export function testUser(overrides: Partial<WbUser> = {}): WbUser {
 export const SESSION: WbSessionId = asWbSessionId('s-integration')
 
 /**
+ * A fully-cleared operator's session.
+ *
+ * Loading the corpus is itself governed (`action: 'ingest_document'`), so a
+ * suite testing a low-clearance principal still needs a cleared session to
+ * seed with — which is also the realistic deployment: an operator loads the
+ * corpus, and engineers query it under their own clearance.
+ */
+export const ADMIN_SESSION: WbSessionId = asWbSessionId('s-admin')
+
+/**
  * Mount the composed workbench.
  * @param options - what to vary from the good configuration.
  * @returns the mounted context plus the instrumentation suites assert on.
@@ -136,7 +146,9 @@ export async function compose(options: ComposeOptions = {}): Promise<Composed> {
 
   // --- real plugins, in workbench.cordis.yml order --------------------------
   if (!options.omit?.includes('identity')) {
-    const sessions = options.sessions ?? { [SESSION]: testUser() }
+    // The admin session is always present so any suite can seed the corpus;
+    // an explicit `sessions` map still governs who SESSION resolves to.
+    const sessions = { [ADMIN_SESSION]: testUser(), ...(options.sessions ?? { [SESSION]: testUser() }) }
     ctx.provide('wbIdentity', {
       current: (sessionId: WbSessionId) => sessions[sessionId],
     })

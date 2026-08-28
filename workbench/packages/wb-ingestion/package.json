@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Document ingestion pipeline: validate → classify → parse/OCR → chunk → embed → index",
+  "description": "Document ingestion pipeline: validate \u2192 classify \u2192 parse/OCR \u2192 chunk \u2192 embed \u2192 index",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {
@@ -25,7 +25,8 @@
   "dependencies": {
     "@mrpl/dsh-workbench-types": "workspace:*",
     "@deepseek-ai/schemastery": "workspace:*",
-    "@deepseek-ai/dsh-home-paths": "workspace:*"
+    "@deepseek-ai/dsh-home-paths": "workspace:*",
+    "jszip": "^3.10.1"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:*"

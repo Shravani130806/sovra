@@ -202,6 +202,11 @@ function resolveCapability(
       // All data reads use internal RAG regardless of destination
       return 'internal_rag'
 
+    case 'ingest_document':
+      // Admitting material to the corpus is local write-side RAG work; it
+      // never leaves the premises, so destination does not vary the capability.
+      return 'internal_rag'
+
     case 'invoke_tool':
       switch (destination) {
         case 'local':

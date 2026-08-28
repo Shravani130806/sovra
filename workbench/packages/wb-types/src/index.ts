@@ -61,7 +61,16 @@ export interface WbPolicyRequest {
    */
   sessionId: WbSessionId
   agentPreset: string
-  action: 'send_data' | 'read_data' | 'invoke_tool' | 'model_request'
+  /**
+   * What the request is trying to do.
+   *
+   * `ingest_document` covers admitting new material to the corpus. It is
+   * distinct from `send_data`, which implies egress: ingestion is local
+   * processing, and without its own variant `wb-ingestion` had no valid
+   * request to build and so never called policy at all — uploads were
+   * ungoverned.
+   */
+  action: 'send_data' | 'read_data' | 'invoke_tool' | 'model_request' | 'ingest_document'
   resource?: WbDocumentId | string
   classification: WbClassification
   destination: 'local' | 'internal' | 'internet' | 'external_api'
@@ -227,8 +236,32 @@ export interface WbToolGatewayService {
   getManifest(toolId: string): WbToolManifest | undefined
 }
 
+/** One document offered to the ingestion pipeline. */
+export interface WbIngestFile {
+  path: string
+  /** The band the uploading user declares. Auto-classification may only raise it. */
+  declaredClassification: WbClassification
+  /** The uploading principal, authorized before the document is admitted. */
+  user: WbUserId
+  /** The session the upload belongs to; how the principal is authenticated. */
+  sessionId: WbSessionId
+  /** The preset in force, for per-role overrides. Defaults to unknown. */
+  agentPreset?: string
+}
+
 export interface WbIngestionService {
-  enqueue(file: { path: string; declaredClassification: WbClassification }): Promise<WbDocumentId>
+  /**
+   * Admit one document to the corpus.
+   *
+   * Authorizes the upload through `WbPolicyService.evaluate` with
+   * `action: 'ingest_document'` before any content is parsed or indexed, so an
+   * unauthorized principal cannot place material in the corpus that retrieval
+   * would later serve.
+   * @param file - the document and the principal offering it.
+   * @returns the assigned document id.
+   * @throws when policy denies the upload, or the document cannot be parsed.
+   */
+  enqueue(file: WbIngestFile): Promise<WbDocumentId>
 }
 
 // ---------------------------------------------------------------------------

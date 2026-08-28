@@ -42,7 +42,7 @@ describe('real emitters -> wb-audit', () => {
     c = await compose()
     const file = join(c.home, 'note.txt')
     writeFileSync(file, 'pump P-101 inspection notes')
-    await c.ctx.wbIngestion.enqueue({ path: file, declaredClassification: 'CONFIDENTIAL' })
+    await c.ctx.wbIngestion.enqueue({ path: file, declaredClassification: 'CONFIDENTIAL', user: testUser().id, sessionId: SESSION })
     const entries = c.ctx.wbAudit.query({ kind: 'ingestion_completed' })
     expect(entries.length).toBeGreaterThan(0)
     expect(entries[0]!.summary).toContain('CONFIDENTIAL')

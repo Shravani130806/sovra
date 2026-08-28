@@ -94,6 +94,25 @@ interface IndexChunk {
 
 ## Deviations
 
-1. **`ctx.wbPolicy` not called during ingestion.** DESIGN.md §6 lists `wb-policy` as a dependency of `wb-ingestion`, but §7.2 `WbPolicyRequest.action` has no variant that maps to "ingest/upload document" (`send_data` implies egress, not local ingestion). This is a contract ambiguity flagged in DESIGN.md §12. The service is injected for forward-compatibility but not called until the action gap is resolved.
+1. ~~**`ctx.wbPolicy` not called during ingestion.**~~ **RESOLVED 2026-08-28.**
+   §7.2 gained an `ingest_document` action and `enqueue` now takes a
+   `WbIngestFile` naming the uploading principal, so every upload is authorized
+   before any content is parsed or indexed. Original note: DESIGN.md §6 lists `wb-policy` as a dependency of `wb-ingestion`, but §7.2 `WbPolicyRequest.action` has no variant that maps to "ingest/upload document" (`send_data` implies egress, not local ingestion). This is a contract ambiguity flagged in DESIGN.md §12. The service is injected for forward-compatibility but not called until the action gap is resolved.
 
-2. **Auto-classification not implemented.** The prototype stores exactly the declared classification. Auto-classification heuristics (e.g., detecting P&ID-like drawings to suggest `CONFIDENTIAL`) are deferred to a future iteration. The downgrade-prevention invariant is still validated by tests.
+2. ~~**Auto-classification not implemented.**~~ **RESOLVED 2026-08-28.**
+   `src/classify.ts` proposes a band from explicit markings (`CONFIDENTIAL`,
+   `RESTRICTED`, `internal use only`) and refinery document signals (P&ID,
+   HAZOP, SIL, emergency shutdown, SOP), with an `INTERNAL` floor for Office
+   and PDF files. A suggestion is applied only when it **outranks** the
+   declared band, so §9 invariant 6 holds structurally rather than by
+   convention. The rules are regex-based and explainable on purpose:
+   `classificationReasons()` returns the phrase that caused a raise, which a
+   model-based classifier could not do, and which keeps a model out of the
+   ingest path for every upload.
+
+3. **OOXML parsing** (`src/office.ts`). `.docx`/`.xlsx`/`.pptx` are ZIP
+   archives; they were previously read with `readFileSync(path, 'utf-8')`,
+   which decoded compressed binary as text and indexed the mojibake as
+   unsearchable noise with no error. Text is now extracted from the archive's
+   XML parts. Scope: text only — embedded images are not OCR'd, and revision
+   marks, comments and speaker notes are not read.

@@ -30,7 +30,7 @@ describe('e2e: network monitor proof', () => {
     const file = join(c.home, 'unit-400-sop.txt')
     writeFileSync(file, 'Unit 400 emergency shutdown procedure, revision C, pump P-101 isolation.')
 
-    await c.ctx.wbIngestion.enqueue({ path: file, declaredClassification: 'CONFIDENTIAL' })
+    await c.ctx.wbIngestion.enqueue({ path: file, declaredClassification: 'CONFIDENTIAL', user: testUser().id, sessionId: SESSION })
     await c.ctx.wbRag.retrieve('shutdown procedure', testUser(), SESSION)
     c.setModelReply(JSON.stringify({ text: 'P-101', blocks: [] }))
     await c.ctx.wbVision.describe(Buffer.from('drawing-bytes'), 'identify the isolation valve')

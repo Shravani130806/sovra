@@ -34,7 +34,7 @@ describe('invariant 3: no raw network egress', () => {
     c = await compose()
     const file = join(c.home, 'confidential.txt')
     writeFileSync(file, 'Unit 400 shutdown procedure, revision C.')
-    await c.ctx.wbIngestion.enqueue({ path: file, declaredClassification: 'CONFIDENTIAL' })
+    await c.ctx.wbIngestion.enqueue({ path: file, declaredClassification: 'CONFIDENTIAL', user: testUser().id, sessionId: SESSION })
     await c.ctx.wbRag.retrieve('shutdown procedure', testUser(), SESSION)
     expect(egress, `unexpected egress: ${egress.join(', ')}`).toHaveLength(0)
   })

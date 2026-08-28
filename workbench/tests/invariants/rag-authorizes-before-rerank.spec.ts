@@ -1,7 +1,7 @@
 import { describe, expect, it, afterEach } from 'vitest'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { compose, SESSION, testUser, type Composed } from '../harness.ts'
+import { ADMIN_SESSION, compose, SESSION, testUser, type Composed } from '../harness.ts'
 import type { WbClassification } from '@mrpl/dsh-workbench-types'
 
 /**
@@ -23,7 +23,7 @@ describe('invariant 2: rag authorizes before it reranks', () => {
     ] as Array<[string, WbClassification]>) {
       const file = join(composed.home, name)
       writeFileSync(file, `pump bearing inspection detail for ${band} band`)
-      await composed.ctx.wbIngestion.enqueue({ path: file, declaredClassification: band })
+      await composed.ctx.wbIngestion.enqueue({ path: file, declaredClassification: band, user: testUser().id, sessionId: ADMIN_SESSION })
     }
   }
 
@@ -53,7 +53,9 @@ describe('invariant 2: rag authorizes before it reranks', () => {
 
   it('a denied chunk’s text never reaches the returned chunk set', async () => {
     c = await compose({
-      sessions: { [SESSION]: testUser({ clearance: 'PUBLIC' as WbClassification }) },
+      sessions: {
+        [SESSION]: testUser({ clearance: 'PUBLIC' as WbClassification }),
+      },
     })
     await seed(c)
     const result = await c.ctx.wbRag.retrieve(
@@ -68,7 +70,9 @@ describe('invariant 2: rag authorizes before it reranks', () => {
 
   it('denied chunks appear in filtered, each with a reason', async () => {
     c = await compose({
-      sessions: { [SESSION]: testUser({ clearance: 'PUBLIC' as WbClassification }) },
+      sessions: {
+        [SESSION]: testUser({ clearance: 'PUBLIC' as WbClassification }),
+      },
     })
     await seed(c)
     const result = await c.ctx.wbRag.retrieve(

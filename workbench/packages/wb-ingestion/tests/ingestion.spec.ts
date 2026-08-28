@@ -14,6 +14,7 @@ import type {
   WbIngestionCompletedEvent,
   WbClassification,
 } from '@mrpl/dsh-workbench-types'
+import { asWbSessionId, asWbUserId } from '@mrpl/dsh-workbench-types'
 
 import { apply as wbIngestionApply, Config } from '../src/index.ts'
 import type { IndexChunk } from '../src/types.ts'
@@ -106,6 +107,10 @@ async function setup(indexPath?: string) {
 // Tests
 // ---------------------------------------------------------------------------
 
+/** The principal every ingestion in these tests is authorized as. */
+const TEST_USER = asWbUserId('u-ingest')
+const TEST_SESSION = asWbSessionId('s-ingest')
+
 describe('wb-ingestion', () => {
   beforeEach(() => {
     testDir = tmpDir()
@@ -127,6 +132,8 @@ describe('wb-ingestion', () => {
     const docId = await ctx.wbIngestion.enqueue({
       path: filePath,
       declaredClassification: 'INTERNAL',
+      user: TEST_USER,
+      sessionId: TEST_SESSION,
     })
 
     expect(docId).toBeDefined()
@@ -154,6 +161,8 @@ describe('wb-ingestion', () => {
       ctx.wbIngestion.enqueue({
         path: filePath,
         declaredClassification: 'PUBLIC',
+        user: TEST_USER,
+        sessionId: TEST_SESSION,
       }),
     ).rejects.toThrow(/MIME type|not allowed|unsupported/)
 
@@ -185,6 +194,8 @@ describe('wb-ingestion', () => {
       smallCtx.wbIngestion.enqueue({
         path: filePath,
         declaredClassification: 'PUBLIC',
+        user: TEST_USER,
+        sessionId: TEST_SESSION,
       }),
     ).rejects.toThrow(/size|exceeds|limit/)
 
@@ -205,6 +216,8 @@ describe('wb-ingestion', () => {
       ctx.wbIngestion.enqueue({
         path: filePath,
         declaredClassification: 'PUBLIC',
+        user: TEST_USER,
+        sessionId: TEST_SESSION,
       }),
     ).rejects.toThrow(/empty/)
 
@@ -231,6 +244,8 @@ describe('wb-ingestion', () => {
     await ctx.wbIngestion.enqueue({
       path: filePath,
       declaredClassification: 'CONFIDENTIAL',
+      user: TEST_USER,
+      sessionId: TEST_SESSION,
     })
 
     expect(vision.calls).toHaveLength(1)
@@ -254,6 +269,8 @@ describe('wb-ingestion', () => {
     await ctx.wbIngestion.enqueue({
       path: filePath,
       declaredClassification: 'CONFIDENTIAL',
+      user: TEST_USER,
+      sessionId: TEST_SESSION,
     })
 
     const chunks = readJsonlLines(indexPath)
@@ -271,6 +288,8 @@ describe('wb-ingestion', () => {
     await ctx.wbIngestion.enqueue({
       path: filePath,
       declaredClassification: 'PUBLIC',
+      user: TEST_USER,
+      sessionId: TEST_SESSION,
     })
 
     expect(gateway.resolveCalls).toContain('embedding')
@@ -327,6 +346,8 @@ describe('wb-ingestion', () => {
       customCtx.wbIngestion.enqueue({
         path: filePath,
         declaredClassification: 'PUBLIC',
+        user: TEST_USER,
+        sessionId: TEST_SESSION,
       }),
     ).rejects.toThrow(/parse|unsupported|format/)
 
