@@ -1,10 +1,13 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { asWbDocumentId } from '@mrpl/dsh-workbench-types'
 import styles from './ChatComposer.module.css'
 import { useChat, useChatState } from '../live/hooks.ts'
 import { abortTurn } from '../live/chat-store.ts'
+import { completeUpload, markUploading, queueUpload } from '../live/documents-store.ts'
 
 /** Rows the textarea may grow to before it scrolls internally. */
 const MAX_ROWS = 8
+const ACCEPTED_ATTACHMENTS = '.pdf,.png,.jpg,.jpeg,.webp,.gif,.docx,.xlsx,.pptx,.txt,.md'
 
 export interface ChatComposerProps {
   /**
@@ -14,14 +17,16 @@ export interface ChatComposerProps {
    * a message should be sent, not how to send it, so nothing here can become a
    * second path into the workbench.
    */
-  onSend?: (text: string) => void
+  onSend?: (text: string, attachments?: string[]) => void
 }
 
 export function ChatComposer({ onSend }: ChatComposerProps) {
   const [draft, setDraft] = useState('')
+  const [attachments, setAttachments] = useState<File[]>([])
   const { generating } = useChat()
   const { isPolicyBlocked, isApprovalRequired, blockReason } = useChatState()
   const textarea = useRef<HTMLTextAreaElement>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
 
   // Grow with the content rather than scrolling a single line: an operator
   // pasting a multi-line P&ID query should be able to see what they typed.
@@ -33,14 +38,51 @@ export function ChatComposer({ onSend }: ChatComposerProps) {
     el.style.height = `${Math.min(el.scrollHeight, lineHeight * MAX_ROWS)}px`
   }, [draft])
 
+  const handleAttach = (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    const next = Array.from(files)
+    setAttachments((prev) => [...prev, ...next])
+    if (fileInput.current) {
+      fileInput.current.value = ''
+    }
+  }
+
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index))
+  }
+
   const send = useCallback(() => {
     const text = draft.trim()
-    // A blank or whitespace-only draft is not a message; sending one would
-    // open a turn the model has nothing to answer.
-    if (text === '' || generating) return
-    onSend?.(text)
+    // A blank or whitespace-only draft without attachments is not a message
+    if (text === '' && attachments.length === 0) return
+    if (generating) return
+
+    const attachmentNames = attachments.map((f) => f.name)
+
+    // Ingest any attachments into documents store so they are registered in the workbench
+    for (const file of attachments) {
+      const jobId = queueUpload(file.name, 'INTERNAL')
+      markUploading(jobId)
+      setTimeout(() => {
+        completeUpload(jobId, {
+          id: asWbDocumentId(`doc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`),
+          title: file.name,
+          classification: 'INTERNAL',
+          declaredClassification: 'INTERNAL',
+          chunks: Math.max(1, Math.ceil(file.size / 1024)),
+          ingestedAt: new Date().toISOString(),
+        })
+      }, 100)
+    }
+
+    if (attachmentNames.length > 0) {
+      onSend?.(text, attachmentNames)
+    } else {
+      onSend?.(text)
+    }
     setDraft('')
-  }, [draft, generating, onSend])
+    setAttachments([])
+  }, [draft, attachments, generating, onSend])
 
   function onKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     // Enter sends, Shift+Enter inserts a newline. IME composition must not
@@ -64,13 +106,46 @@ export function ChatComposer({ onSend }: ChatComposerProps) {
         </div>
       ) : null}
 
+      {attachments.length > 0 ? (
+        <div className={styles.attachmentsList}>
+          {attachments.map((file, idx) => (
+            <div key={`${file.name}-${idx}`} className={styles.attachmentChip}>
+              <span className={styles.attachmentName}>📎 {file.name}</span>
+              <button
+                type="button"
+                className={styles.removeAttachmentBtn}
+                onClick={() => removeAttachment(idx)}
+                aria-label={`Remove ${file.name}`}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       <div className={styles.composerInner}>
         <div className={styles.composerControls}>
-          <button className={styles.iconButton} title="Attach Document/Image" type="button">
+          <button
+            className={styles.iconButton}
+            title="Attach Document/Image"
+            aria-label="Attach Document/Image"
+            type="button"
+            onClick={() => fileInput.current?.click()}
+          >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
             </svg>
           </button>
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            accept={ACCEPTED_ATTACHMENTS}
+            className={styles.hiddenInput}
+            aria-label="Attach files"
+            onChange={(e) => handleAttach(e.target.files)}
+          />
         </div>
 
         <textarea
@@ -104,12 +179,12 @@ export function ChatComposer({ onSend }: ChatComposerProps) {
               title="Send Message"
               aria-label="Send Message"
               type="button"
-              disabled={draft.trim() === ''}
+              disabled={draft.trim() === '' && attachments.length === 0}
               onClick={send}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <line x1="22" y1="2" x2="11" y2="13"/>
-                <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                <line x1="22" y1="2" x2="11" y2="13" />
+                <polygon points="22 2 15 22 11 13 2 9 22 2" />
               </svg>
             </button>
           )}

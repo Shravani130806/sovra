@@ -8,6 +8,8 @@
 
 import type { WbClassification, WbDocumentId } from '@mrpl/dsh-workbench-types'
 
+const STORAGE_KEY = 'sovra_wb_docs_v1'
+
 /** Bands ordered least to most sensitive; the non-downgrade check reads this. */
 export const CLASSIFICATIONS: readonly WbClassification[] = [
   'PUBLIC',
@@ -51,7 +53,31 @@ export interface DocumentsState {
 
 export const INITIAL_DOCUMENTS: DocumentsState = { documents: [], uploads: [] }
 
-let state: DocumentsState = INITIAL_DOCUMENTS
+function loadPersistedDocuments(): DocumentsState {
+  if (typeof window === 'undefined' || !window.localStorage) return INITIAL_DOCUMENTS
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY)
+    if (!raw) return INITIAL_DOCUMENTS
+    const parsed = JSON.parse(raw) as Partial<DocumentsState>
+    if (parsed && Array.isArray(parsed.documents)) {
+      return { documents: parsed.documents, uploads: [] }
+    }
+  } catch {
+    // Ignore storage parse errors
+  }
+  return INITIAL_DOCUMENTS
+}
+
+function savePersistedDocuments(next: DocumentsState): void {
+  if (typeof window === 'undefined' || !window.localStorage) return
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ documents: next.documents }))
+  } catch {
+    // Ignore quota errors
+  }
+}
+
+let state: DocumentsState = loadPersistedDocuments()
 const listeners = new Set<() => void>()
 
 export function subscribeDocuments(listener: () => void): () => void {
@@ -67,6 +93,7 @@ export function getDocumentsState(): DocumentsState {
 
 function commit(next: DocumentsState): void {
   state = next
+  savePersistedDocuments(next)
   for (const listener of listeners) listener()
 }
 
@@ -155,7 +182,14 @@ export function setDocuments(documents: readonly CorpusDocument[]): void {
   commit({ ...state, documents: [...documents] })
 }
 
-export function resetDocuments(): void {
+export function resetDocuments(clearStorage = false): void {
   uploadCounter = 0
+  if (clearStorage && typeof window !== 'undefined' && window.localStorage) {
+    try {
+      window.localStorage.removeItem(STORAGE_KEY)
+    } catch {
+      // ignore
+    }
+  }
   commit(INITIAL_DOCUMENTS)
 }

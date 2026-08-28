@@ -96,3 +96,59 @@
 .actionBtn:hover {
   background: var(--dsh-color-surface-active);
 }
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: var(--wb-bg-surface, #1e1e24);
+  border: 1px solid var(--wb-border-strong, #333);
+  border-radius: 8px;
+  padding: 1.5rem;
+  width: 90%;
+  max-width: 500px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--wb-border-subtle, #2a2a30);
+  padding-bottom: 0.5rem;
+}
+
+.modalTitle {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--wb-text-primary, #fff);
+}
+
+.closeBtn {
+  background: transparent;
+  border: none;
+  color: var(--wb-text-secondary, #888);
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
+.modalBody {
+  font-size: 0.9rem;
+  color: var(--wb-text-secondary, #ccc);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.modalRow {
+  display: flex;
+  justify-content: space-between;
+}

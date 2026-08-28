@@ -6,7 +6,7 @@
 import type { WbDocumentId } from '@mrpl/dsh-workbench-types'
 
 /** The panels the sidebar switches between. */
-export type Route = 'chat' | 'documents' | 'vision' | 'search' | 'security' | 'settings'
+export type Route = 'chat' | 'documents' | 'vision' | 'activity' | 'search' | 'security' | 'settings'
 
 export interface NavigationState {
   route: Route

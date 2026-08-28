@@ -7,6 +7,53 @@
   gap: 8px;
 }
 
+.attachmentsList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.attachmentChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--dsh-theme-bg-surface, #25252b);
+  border: 1px solid var(--dsh-theme-border, #3a3a42);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--dsh-theme-text-primary, #ffffff);
+}
+
+.attachmentName {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.removeAttachmentBtn {
+  background: transparent;
+  border: none;
+  color: var(--dsh-theme-text-secondary, #999);
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.removeAttachmentBtn:hover {
+  color: #f28c86;
+}
+
+.hiddenInput {
+  display: none;
+}
+
 .composerInner {
   display: flex;
   align-items: flex-end;

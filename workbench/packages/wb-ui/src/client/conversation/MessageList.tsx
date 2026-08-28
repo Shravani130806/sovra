@@ -29,6 +29,16 @@ export function MessageList() {
     <div className={styles.messageList}>
       {turns.map((turn) => (
         <Message key={turn.id} role={turn.role}>
+          {turn.attachments && turn.attachments.length > 0 ? (
+            <div className={styles.attachments}>
+              {turn.attachments.map((name, i) => (
+                <span key={i} className={styles.attachmentBadge}>
+                  📎 {name}
+                </span>
+              ))}
+            </div>
+          ) : null}
+
           {turn.text ? <p className={styles.text}>{withCitations(turn.text)}</p> : null}
 
           {turn.tools.map((node) => (

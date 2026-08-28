@@ -21,13 +21,7 @@ export interface ActivityEntry {
   at: string
   summary: string
   kind: WbAuditEntry['kind']
-  /**
-   * Whether this row records something policy refused.
-   *
-   * Derived once here from the recorded decision rather than sniffed from the
-   * summary string in the view, so the timeline and the audit log cannot
-   * disagree about what was blocked.
-   */
+  /** True when policy refused the operation; highlighted in the panel. */
   blocked: boolean
 }
 
@@ -108,7 +102,8 @@ const ARTIFACT_KINDS: Readonly<Record<string, ArtifactEntry['kind']>> = {
  * @param entry - the recorded audit entry.
  */
 export function publishAuditEntry(entry: WbAuditEntry): void {
-  const decision = (entry.payload as { decision?: unknown }).decision
+  const payload = (entry.payload ?? {}) as { decision?: unknown; name?: unknown; value?: unknown }
+  const decision = payload.decision
   const activity: ActivityEntry[] = [
     {
       id: entry.id,
@@ -122,7 +117,6 @@ export function publishAuditEntry(entry: WbAuditEntry): void {
 
   let artifacts = state.artifacts
   if (entry.kind === 'tool_result') {
-    const payload = entry.payload as { name?: unknown; value?: unknown }
     const kind = typeof payload.name === 'string' ? ARTIFACT_KINDS[payload.name] : undefined
     if (kind) {
       const value = (payload.value ?? {}) as { path?: unknown; citations?: unknown }

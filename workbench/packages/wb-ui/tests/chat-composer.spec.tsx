@@ -5,6 +5,7 @@ import { resetChat, startTurn } from '../src/client/live/chat-store.ts'
 import { publishChatDecision, resetWorkbenchState } from '../src/client/live/workbench-store.ts'
 
 const box = () => screen.getByLabelText('Message') as HTMLTextAreaElement
+const file = (name: string) => new File(['dummy content'], name, { type: 'text/plain' })
 
 describe('ChatComposer', () => {
   beforeEach(() => {
@@ -46,7 +47,7 @@ describe('ChatComposer', () => {
     expect(onSend).not.toHaveBeenCalled()
   })
 
-  it('a whitespace-only draft cannot be sent', () => {
+  it('a whitespace-only draft without attachments cannot be sent', () => {
     // Sending one would open a turn the model has nothing to answer.
     const onSend = vi.fn()
     render(<ChatComposer onSend={onSend} />)
@@ -62,6 +63,36 @@ describe('ChatComposer', () => {
     fireEvent.change(box(), { target: { value: '  P-101  ' } })
     fireEvent.click(screen.getByLabelText('Send Message'))
     expect(onSend).toHaveBeenCalledWith('P-101')
+  })
+
+  describe('attachments', () => {
+    it('clicking the clip icon opens the file picker and attaches files', () => {
+      render(<ChatComposer />)
+      const input = screen.getByLabelText('Attach files')
+      fireEvent.change(input, { target: { files: [file('schematic.pdf')] } })
+      expect(screen.getByText('📎 schematic.pdf')).toBeDefined()
+    })
+
+    it('can remove an attached file before sending', () => {
+      render(<ChatComposer />)
+      const input = screen.getByLabelText('Attach files')
+      fireEvent.change(input, { target: { files: [file('schematic.pdf')] } })
+      expect(screen.getByText('📎 schematic.pdf')).toBeDefined()
+
+      fireEvent.click(screen.getByLabelText('Remove schematic.pdf'))
+      expect(screen.queryByText('📎 schematic.pdf')).toBeNull()
+    })
+
+    it('sending with attachment dispatches message and clears attachments', () => {
+      const onSend = vi.fn()
+      render(<ChatComposer onSend={onSend} />)
+      const input = screen.getByLabelText('Attach files')
+      fireEvent.change(input, { target: { files: [file('report.docx')] } })
+
+      fireEvent.click(screen.getByLabelText('Send Message'))
+      expect(onSend).toHaveBeenCalledWith('', ['report.docx'])
+      expect(screen.queryByText('📎 report.docx')).toBeNull()
+    })
   })
 
   describe('while generating', () => {

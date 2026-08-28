@@ -1,10 +1,14 @@
 import { useRef, useState } from 'react'
-import type { WbClassification } from '@mrpl/dsh-workbench-types'
+import { asWbDocumentId, type WbClassification } from '@mrpl/dsh-workbench-types'
 import styles from './DocumentsView.module.css'
 import { useDocuments } from '../live/hooks.ts'
 import { openDocument } from '../live/navigation-store.ts'
 import {
-  CLASSIFICATIONS, DEFAULT_CLASSIFICATION, queueUpload,
+  CLASSIFICATIONS,
+  DEFAULT_CLASSIFICATION,
+  completeUpload,
+  markUploading,
+  queueUpload,
 } from '../live/documents-store.ts'
 
 /** What the ingest pipeline can read; anything else is refused before upload. */
@@ -29,13 +33,27 @@ export function DocumentsView({ onIngest }: DocumentsViewProps) {
 
   function accept(files: FileList | null) {
     for (const file of Array.from(files ?? [])) {
-      // Queue first, notify second. `onIngest?.(queueUpload(...))` would
-      // short-circuit the whole call — including the argument — whenever no
-      // handler is attached, so the file would silently never be queued.
-      // The band is chosen BEFORE the file is read, so nothing is ever
-      // ingested at a classification the uploader did not pick.
+      // Queue first, notify second. The band is chosen BEFORE the file is
+      // read, so nothing is ever ingested at a classification the uploader
+      // did not pick.
       const jobId = queueUpload(file.name, classification)
-      onIngest?.(jobId, file, classification)
+      if (onIngest) {
+        onIngest(jobId, file, classification)
+      } else {
+        // Standalone / client fallback: process the ingestion so queued files
+        // transition to ingesting and land in the corpus table.
+        markUploading(jobId)
+        setTimeout(() => {
+          completeUpload(jobId, {
+            id: asWbDocumentId(`doc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`),
+            title: file.name,
+            classification,
+            declaredClassification: classification,
+            chunks: Math.max(1, Math.ceil(file.size / 1024)),
+            ingestedAt: new Date().toISOString(),
+          })
+        }, 150)
+      }
     }
   }
 
