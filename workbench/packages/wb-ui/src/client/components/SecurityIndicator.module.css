@@ -57,3 +57,16 @@
 .external .dot {
   background-color: #3b82f6;
 }
+
+/* Partial allows — redaction, metadata-only. Distinct from a plain external
+   allow, because content was withheld even though the call proceeded. */
+.partial {
+  background-color: rgba(168, 85, 247, 0.1);
+  border-color: rgba(168, 85, 247, 0.2);
+  color: #c084fc;
+}
+
+.partial .dot {
+  background-color: #a855f7;
+  box-shadow: 0 0 8px rgba(168, 85, 247, 0.5);
+}

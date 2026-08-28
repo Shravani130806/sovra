@@ -1,5 +1,4 @@
 import {
-  WbDecisionKind,
   WbAuditEntry,
   WbCitation,
 } from '@mrpl/dsh-workbench-types'
@@ -7,16 +6,13 @@ import {
 // Mock state hooks to cleanly separate UI components from hardcoded strings.
 // These hooks will later be replaced by the real dsh-sdk / workbench event-stream integrations.
 
-export function useSovereignPolicy() {
-  const decision: WbDecisionKind = 'ALLOW'
-  
-  return {
-    decision,
-    isLocal: true,
-    isProcessing: false,
-    reason: 'Local computation only',
-  }
-}
+// `useSovereignPolicy` is deliberately NOT mocked here. A hardcoded 'ALLOW'
+// narrows `decision` to one literal, which makes the security indicator's DENY
+// and REQUIRE_APPROVAL branches unreachable and welds the badge to green —
+// the opposite of what DESIGN.md §6.10 asks the badge to prove. It reads live
+// state instead; see ../policy/policy-store.ts.
+export { useSovereignPolicy } from '../policy/use-sovereign-policy.ts'
+export type { PolicyState } from '../policy/policy-store.ts'
 
 export function useSovereignActivity() {
   const activityLog: Pick<WbAuditEntry, 'at' | 'summary'>[] = [
