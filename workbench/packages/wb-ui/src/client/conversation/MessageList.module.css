@@ -7,3 +7,17 @@
   max-width: 800px;
   margin: 0 auto;
 }
+
+.text { white-space: pre-wrap; }
+
+.citation {
+  color: var(--wb-accent, #4f8ff7);
+  font-weight: 600;
+  font-size: 10px;
+  padding: 0 2px;
+}
+
+.thinking {
+  color: var(--wb-text-muted, #93a3ae);
+  font-style: italic;
+}

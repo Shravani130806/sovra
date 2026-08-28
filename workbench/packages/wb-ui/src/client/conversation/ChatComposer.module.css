@@ -94,3 +94,29 @@
   font-size: 11px;
   color: var(--dsh-theme-text-tertiary, #666);
 }
+
+/* Policy banner — the composer's half of making governance visible. */
+.policyBanner {
+  margin: 0 0 8px;
+  padding: 7px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.policyBlocked {
+  background: rgba(242, 140, 134, 0.14);
+  border: 1px solid rgba(242, 140, 134, 0.3);
+  color: #f28c86;
+}
+
+.policyApproval {
+  background: rgba(224, 160, 82, 0.14);
+  border: 1px solid rgba(224, 160, 82, 0.3);
+  color: #e0a052;
+}
+
+.stopButton {
+  background: rgba(242, 140, 134, 0.18);
+  color: #f28c86;
+}

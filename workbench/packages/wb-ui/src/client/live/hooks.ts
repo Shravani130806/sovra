@@ -12,6 +12,10 @@ import {
   type ArtifactEntry,
   type ChatState,
 } from './workbench-store.ts'
+import { getChatState, subscribeChat } from './chat-store.ts'
+import { getDocumentsState, subscribeDocuments } from './documents-store.ts'
+import { getVisionState, subscribeVision } from './vision-store.ts'
+import { getNavigationState, subscribeNavigation } from './navigation-store.ts'
 
 function useWorkbench() {
   return useSyncExternalStore(subscribeWorkbench, getWorkbenchState, getWorkbenchState)
@@ -38,4 +42,24 @@ export function useSessionArtifacts(): ArtifactEntry[] {
 /** The composer's policy posture. */
 export function useChatState(): ChatState {
   return useWorkbench().chat
+}
+
+/** The conversation: turns, streaming state, and the active preset. */
+export function useChat() {
+  return useSyncExternalStore(subscribeChat, getChatState, getChatState)
+}
+
+/** The corpus and the upload queue. */
+export function useDocuments() {
+  return useSyncExternalStore(subscribeDocuments, getDocumentsState, getDocumentsState)
+}
+
+/** The vision studio's image, question and findings. */
+export function useVision() {
+  return useSyncExternalStore(subscribeVision, getVisionState, getVisionState)
+}
+
+/** Which panel is showing, and what it is focused on. */
+export function useNavigation() {
+  return useSyncExternalStore(subscribeNavigation, getNavigationState, getNavigationState)
 }

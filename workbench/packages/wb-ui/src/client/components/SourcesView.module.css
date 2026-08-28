@@ -56,3 +56,17 @@
   font-size: 0.8rem;
   color: var(--dsh-color-text-secondary);
 }
+
+/* The whole row is the affordance: a citation is meant to be followed. */
+.item {
+  width: 100%;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.item:hover { background: rgba(127, 143, 155, 0.08); }
+.item:focus-visible { outline: 2px solid var(--wb-accent, #4f8ff7); outline-offset: -2px; }
