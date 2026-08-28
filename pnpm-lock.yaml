@@ -9352,6 +9352,31 @@ importers:
 
   workbench/packages/wb-types: {}
 
+  workbench/packages/wb-ui:
+    dependencies:
+      '@mrpl/dsh-workbench-types':
+        specifier: workspace:*
+        version: link:../wb-types
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-client-runtime':
+        specifier: workspace:^
+        version: link:../../../packages/client/runtime
+      '@deepseek-ai/dsh-client-ui-layout':
+        specifier: workspace:^
+        version: link:../../../packages/client/ui-layout
+      '@deepseek-ai/dsh-client-ui-slots':
+        specifier: workspace:^
+        version: link:../../../packages/client/ui-slots
+      '@types/react':
+        specifier: ~18.3.1
+        version: 18.3.31
+      react:
+        specifier: ^18.2.0
+        version: 18.3.1
+
   workbench/packages/wb-vision:
     dependencies:
       '@deepseek-ai/schemastery':

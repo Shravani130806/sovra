@@ -1,0 +1,150 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--wb-bg-app);
+}
+
+.header {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--wb-border-subtle);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--wb-bg-surface);
+}
+
+.titleGroup {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.title {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: var(--wb-text-primary);
+  margin: 0;
+}
+
+.badge {
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  background: var(--wb-color-blocked-bg);
+  color: var(--wb-color-blocked);
+}
+
+.controls {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.controlBtn {
+  background: transparent;
+  border: 1px solid var(--wb-border-strong);
+  color: var(--wb-text-primary);
+  padding: 0.4rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.controlBtn:hover {
+  background: var(--wb-bg-surface-hover);
+}
+
+.contentArea {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.viewerPane {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  overflow: auto;
+  position: relative;
+}
+
+.mockPdf {
+  width: 100%;
+  max-width: 800px;
+  aspect-ratio: 1 / 1.414;
+  background: white;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  padding: 3rem;
+  position: relative;
+}
+
+.pdfHeader {
+  font-size: 1.5rem;
+  color: #000;
+  margin-bottom: 2rem;
+  border-bottom: 2px solid #ccc;
+  padding-bottom: 0.5rem;
+}
+
+.pdfText {
+  color: #333;
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.highlight {
+  background: rgba(245, 158, 11, 0.3);
+  padding: 0 0.2rem;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.citationPane {
+  width: 300px;
+  background: var(--wb-bg-surface);
+  border-left: 1px solid var(--wb-border-subtle);
+  display: flex;
+  flex-direction: column;
+}
+
+.citationHeader {
+  padding: 1rem;
+  border-bottom: 1px solid var(--wb-border-subtle);
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--wb-text-primary);
+}
+
+.citationList {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  overflow-y: auto;
+}
+
+.citationCard {
+  background: var(--wb-bg-app);
+  border: 1px solid var(--wb-border-strong);
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.citationCard h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.85rem;
+  color: var(--wb-text-primary);
+}
+
+.citationCard p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--wb-text-secondary);
+  line-height: 1.4;
+}

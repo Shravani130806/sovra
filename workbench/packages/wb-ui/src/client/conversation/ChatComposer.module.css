@@ -1,0 +1,96 @@
+.composerWrapper {
+  max-width: 800px;
+  margin: 0 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.composerInner {
+  display: flex;
+  align-items: flex-end;
+  background-color: var(--dsh-theme-bg-surface, #1e1e1e);
+  border: 1px solid var(--dsh-theme-border, #333);
+  border-radius: 12px;
+  padding: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  transition: border-color 0.2s ease;
+}
+
+.composerInner:focus-within {
+  border-color: #555;
+}
+
+.composerControls {
+  display: flex;
+  padding: 4px;
+}
+
+.textarea {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--dsh-theme-text-primary, #ffffff);
+  font-family: inherit;
+  font-size: 15px;
+  resize: none;
+  padding: 8px 12px;
+  min-height: 24px;
+  max-height: 200px;
+  outline: none;
+  line-height: 1.5;
+}
+
+.textarea::placeholder {
+  color: var(--dsh-theme-text-secondary, #999);
+}
+
+.composerActions {
+  display: flex;
+  padding: 4px;
+}
+
+.iconButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: var(--dsh-theme-text-secondary, #999);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.iconButton:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: var(--dsh-theme-text-primary, #ffffff);
+}
+
+.sendButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background-color: var(--dsh-theme-bg-primary, #ffffff);
+  border: none;
+  color: #000000;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sendButton:hover {
+  opacity: 0.9;
+  transform: scale(1.05);
+}
+
+.footerText {
+  text-align: center;
+  font-size: 11px;
+  color: var(--dsh-theme-text-tertiary, #666);
+}

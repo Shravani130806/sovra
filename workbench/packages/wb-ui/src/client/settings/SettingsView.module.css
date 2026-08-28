@@ -1,0 +1,119 @@
+.container {
+  padding: 2rem;
+  max-width: 1000px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.header {
+  margin-bottom: 2rem;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: var(--wb-text-primary);
+}
+
+.header p {
+  margin: 0.5rem 0 0 0;
+  color: var(--wb-text-secondary);
+}
+
+.layout {
+  display: flex;
+  gap: 2rem;
+}
+
+.sidebar {
+  width: 200px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.tab {
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--wb-text-secondary);
+  font-size: 0.9rem;
+  transition: all 0.15s ease;
+}
+
+.tab:hover {
+  background: var(--wb-bg-surface-hover);
+  color: var(--wb-text-primary);
+}
+
+.tabActive {
+  background: var(--wb-bg-surface-hover);
+  color: var(--wb-text-primary);
+  font-weight: 500;
+}
+
+.content {
+  flex: 1;
+  background: var(--wb-bg-surface);
+  border: 1px solid var(--wb-border-subtle);
+  border-radius: 8px;
+  padding: 2rem;
+  min-height: 400px;
+}
+
+.content h2 {
+  margin: 0 0 1.5rem 0;
+  font-size: 1.1rem;
+  color: var(--wb-text-primary);
+}
+
+.settingGroup {
+  margin-bottom: 2rem;
+}
+
+.settingGroup:last-child {
+  margin-bottom: 0;
+}
+
+.settingRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding-bottom: 1rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--wb-border-subtle);
+}
+
+.settingRow:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.settingInfo {
+  max-width: 70%;
+}
+
+.settingTitle {
+  font-size: 0.95rem;
+  color: var(--wb-text-primary);
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+}
+
+.settingDesc {
+  font-size: 0.85rem;
+  color: var(--wb-text-secondary);
+  line-height: 1.4;
+}
+
+.settingControl select {
+  background: var(--wb-bg-app);
+  border: 1px solid var(--wb-border-strong);
+  color: var(--wb-text-primary);
+  padding: 0.4rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  outline: none;
+}

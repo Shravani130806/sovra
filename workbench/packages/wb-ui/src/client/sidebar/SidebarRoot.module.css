@@ -1,0 +1,145 @@
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: var(--wb-bg-surface);
+  color: var(--wb-text-primary);
+  border-right: 1px solid var(--wb-border-subtle);
+  font-family: system-ui, -apple-system, sans-serif;
+  user-select: none;
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  background-color: var(--wb-bg-surface);
+  border-right: 1px solid var(--wb-border-subtle);
+}
+
+.header {
+  padding: 1rem;
+  border-bottom: 1px solid var(--wb-border-subtle);
+}
+
+.brandFull {
+  font-weight: 600;
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--wb-text-primary);
+}
+
+.brandCompact {
+  font-weight: 700;
+  font-size: 0.75rem;
+  padding: 1rem 0;
+  color: var(--wb-text-primary);
+}
+
+.navigation {
+  flex: 1;
+  padding: 0.75rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  overflow-y: auto;
+}
+
+.sectionTitle {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--wb-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.5rem 0.75rem 0.25rem;
+  margin-top: 0.5rem;
+}
+
+.navItem {
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: var(--wb-text-secondary);
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.navItem:hover {
+  background-color: var(--wb-bg-surface-hover);
+  color: var(--wb-text-primary);
+}
+
+.navItemActive {
+  background-color: var(--wb-bg-surface-hover);
+  color: var(--wb-text-primary);
+  font-weight: 500;
+}
+
+.navItemActive::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  width: 3px;
+  height: 1.2rem;
+  background-color: var(--wb-color-sovereign);
+  border-radius: 0 4px 4px 0;
+}
+
+.footer {
+  padding: 1rem;
+  border-top: 1px solid var(--wb-border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.userArea {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+  padding: 0.5rem;
+  border-radius: 6px;
+  transition: background-color 0.15s ease;
+}
+
+.userArea:hover {
+  background-color: var(--wb-bg-surface-hover);
+}
+
+.userName {
+  font-weight: 500;
+  font-size: 0.85rem;
+  color: var(--wb-text-primary);
+}
+
+.userRole {
+  font-size: 0.75rem;
+  color: var(--wb-text-secondary);
+}
+
+.newChatBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem;
+  background: transparent;
+  border: 1px solid var(--wb-border-strong);
+  color: var(--wb-text-primary);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  margin-bottom: 0.5rem;
+  transition: all 0.15s ease;
+}
+
+.newChatBtn:hover {
+  background: var(--wb-bg-surface-hover);
+}

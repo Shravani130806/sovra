@@ -1,0 +1,125 @@
+.container {
+  padding: 2rem;
+  max-width: 800px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.searchHeader {
+  margin-bottom: 2rem;
+}
+
+.searchInputWrapper {
+  position: relative;
+  width: 100%;
+}
+
+.searchInput {
+  width: 100%;
+  padding: 1rem 1rem 1rem 3rem;
+  font-size: 1.1rem;
+  background: var(--wb-bg-surface);
+  border: 1px solid var(--wb-border-strong);
+  border-radius: 8px;
+  color: var(--wb-text-primary);
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.searchInput:focus {
+  border-color: var(--wb-color-sovereign);
+}
+
+.searchIcon {
+  position: absolute;
+  left: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 1.2rem;
+  color: var(--wb-text-secondary);
+}
+
+.shortcut {
+  position: absolute;
+  right: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.75rem;
+  color: var(--wb-text-secondary);
+  background: var(--wb-bg-app);
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid var(--wb-border-subtle);
+  pointer-events: none;
+}
+
+.resultsGroup {
+  margin-bottom: 2rem;
+}
+
+.resultsGroup h3 {
+  font-size: 0.85rem;
+  color: var(--wb-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 1rem;
+}
+
+.resultList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.resultCard {
+  background: var(--wb-bg-surface);
+  border: 1px solid var(--wb-border-subtle);
+  border-radius: 8px;
+  padding: 1rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.resultCard:hover {
+  background: var(--wb-bg-surface-hover);
+  border-color: var(--wb-border-strong);
+}
+
+.resultInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.resultTitle {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--wb-text-primary);
+}
+
+.resultMeta {
+  font-size: 0.8rem;
+  color: var(--wb-text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.resultBadge {
+  background: var(--wb-color-sovereign-bg);
+  color: var(--wb-color-sovereign);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.emptyState {
+  text-align: center;
+  padding: 4rem 0;
+  color: var(--wb-text-secondary);
+}
