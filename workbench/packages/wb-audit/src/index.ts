@@ -9,6 +9,7 @@ import {
   type WbAuditEntryId,
   type WbIdentityService,
   type WbPolicyDecisionEvent,
+  type WbPolicyOverrideChangedEvent,
   type WbRagRetrievedEvent,
   type WbIngestionCompletedEvent,
   type WbUserId,
@@ -46,6 +47,8 @@ declare module '@deepseek-ai/cordis' {
   interface Events {
     /** A policy decision was made. */
     'wb/policy/decision'(event: WbPolicyDecisionEvent): void
+    /** The per-role override table changed. */
+    'wb/policy/override-changed'(event: WbPolicyOverrideChangedEvent): void
     /** RAG retrieval completed. */
     'wb/rag/retrieved'(event: WbRagRetrievedEvent): void
     /** Document ingestion completed. */
@@ -83,6 +86,20 @@ export class WbAuditService extends Service {
           userId: event.user,
           kind: 'policy_decision',
           summary: `${event.decision} ${event.action}${event.tool ? ` ${event.tool}` : ''} -> ${event.destination}: ${event.reason}`,
+          payload: event as unknown as Record<string, unknown>,
+        })
+      })
+
+      const unsubOverride = ctx.on('wb/policy/override-changed', (event) => {
+        // An admin editing the table is a governance change; invariant 4 makes
+        // it as observable as the decisions it will go on to alter.
+        this.record({
+          sessionId: UNATTRIBUTED_SESSION,
+          userId: event.changedBy ?? UNATTRIBUTED_USER,
+          kind: 'policy_override',
+          summary: event.override
+            ? `role ${event.role} overrides set: ${Object.entries(event.override).map(([c, d]) => `${c}=${d}`).join(', ')}`
+            : `role ${event.role} overrides cleared`,
           payload: event as unknown as Record<string, unknown>,
         })
       })
@@ -148,6 +165,7 @@ export class WbAuditService extends Service {
 
       return () => {
         unsubPolicy()
+        unsubOverride()
         unsubRag()
         unsubIngestion()
         unsubSession()

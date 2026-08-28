@@ -1,2 +1,5 @@
 - id: wb-ui
   name: '@mrpl/dsh-workbench-ui'
+
+- id: wb-admin-console
+  name: '@mrpl/dsh-workbench-admin-console'

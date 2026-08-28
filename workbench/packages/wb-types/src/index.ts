@@ -106,6 +106,30 @@ export interface WbRagResult {
   filtered: Array<{ citation: WbCitation; reason: string }>
 }
 
+/**
+ * The capability axis of the §5 matrix — what a request is trying to do,
+ * independent of the data's classification.
+ */
+export type WbCapability =
+  | 'local_model_inference'
+  | 'internal_rag'
+  | 'local_code_sandbox'
+  | 'internal_db_api'
+  | 'web_search'
+  | 'external_api'
+  | 'external_upload'
+
+/** Classification x capability decision table (§5). */
+export type WbPolicyMatrix = Record<WbClassification, Record<WbCapability, WbDecisionKind>>
+
+/**
+ * Per-role decisions layered over the matrix: role -> capability -> decision.
+ *
+ * A role names only the capabilities it changes; anything absent falls through
+ * to the matrix.
+ */
+export type WbRoleOverrides = Record<string, Partial<Record<WbCapability, WbDecisionKind>>>
+
 export type WbToolRiskLevel = 'local' | 'enterprise' | 'external'
 export type WbToolNetworkAccess = 'none' | 'internal' | 'external'
 
@@ -122,7 +146,13 @@ export interface WbAuditEntry {
   at: string // ISO 8601
   sessionId: WbSessionId
   userId: WbUserId
-  kind: 'policy_decision' | 'tool_result' | 'session_event' | 'rag_retrieval' | 'ingestion_completed'
+  kind:
+    | 'policy_decision'
+    | 'policy_override'
+    | 'tool_result'
+    | 'session_event'
+    | 'rag_retrieval'
+    | 'ingestion_completed'
   summary: string
   payload: Record<string, unknown>
 }
@@ -138,6 +168,29 @@ export interface WbIdentityService {
 
 export interface WbPolicyService {
   evaluate(request: WbPolicyRequest): Promise<WbPolicyDecision>
+  /**
+   * The live matrix and per-role overrides, for an admin surface to render.
+   * @returns a deep copy; mutating it does not change what is enforced.
+   */
+  governance(): { matrix: WbPolicyMatrix; roleOverrides: WbRoleOverrides }
+  /**
+   * Replace or clear one role's overrides.
+   *
+   * The only supported write path into policy state. §6.11 has
+   * `wb-admin-console` edit the table `wb-policy` already reads rather than
+   * keeping a second one, so the change lands here and takes effect on the
+   * next `evaluate()`. Every change publishes `wb/policy/override-changed`:
+   * a governance change is as observable as a decision (§9 invariant 4).
+   * @param role - the role whose overrides to replace.
+   * @param override - the new overrides, or undefined to clear the role.
+   * @throws when the role is empty, or an entry names a capability or decision
+   *   kind outside the frozen unions, so a bad edit fails at the call rather
+   *   than silently never matching at evaluate() time.
+   */
+  setRoleOverride(
+    role: string,
+    override: Partial<Record<WbCapability, WbDecisionKind>> | undefined,
+  ): void
 }
 
 export interface WbAuditService {
@@ -188,6 +241,15 @@ export interface WbIdentityResolvedEvent {
 }
 
 export type WbPolicyDecisionEvent = WbPolicyRequest & WbPolicyDecision
+
+/** Published by wb-policy whenever the per-role override table changes. */
+export interface WbPolicyOverrideChangedEvent {
+  role: string
+  /** The overrides now in force for that role; absent when the role was cleared. */
+  override?: Partial<Record<WbCapability, WbDecisionKind>>
+  /** Who made the change, when the caller knows. */
+  changedBy?: WbUserId
+}
 
 export interface WbRagRetrievedEvent {
   sessionId: WbSessionId

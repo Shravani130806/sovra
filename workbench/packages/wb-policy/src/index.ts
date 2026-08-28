@@ -20,6 +20,10 @@ import {
   type WbIdentityService,
   type WbToolGatewayService,
   type WbToolNetworkAccess,
+  type WbCapability,
+  type WbPolicyMatrix,
+  type WbRoleOverrides,
+  type WbPolicyOverrideChangedEvent,
   type WbUser,
 } from '@mrpl/dsh-workbench-types'
 
@@ -65,20 +69,31 @@ export const inject = ['wbIdentity', 'wbToolGateway'] as const
 // ---------------------------------------------------------------------------
 
 /** Capability keys matching the §5 matrix rows (snake_case). */
-export type WbCapability =
-  | 'local_model_inference'
-  | 'internal_rag'
-  | 'local_code_sandbox'
-  | 'internal_db_api'
-  | 'web_search'
-  | 'external_api'
-  | 'external_upload'
+// The capability axis and the override table are frozen in §7.2 so that
+// wb-admin-console can reference them without importing this package.
+export type { WbCapability } from '@mrpl/dsh-workbench-types'
+/** Every capability the matrix keys on; the validation set for admin edits. */
+export const ALL_CAPABILITIES: readonly WbCapability[] = [
+  'local_model_inference',
+  'internal_rag',
+  'local_code_sandbox',
+  'internal_db_api',
+  'web_search',
+  'external_api',
+  'external_upload',
+]
 
-/** Matrix: classification → capability → decision. */
-export type PolicyMatrix = Record<WbClassification, Record<WbCapability, WbDecisionKind>>
+/** Every decision kind an override may name. */
+export const ALL_DECISION_KINDS: readonly WbDecisionKind[] = [
+  'ALLOW',
+  'DENY',
+  'REQUIRE_APPROVAL',
+  'ALLOW_WITH_REDACTION',
+  'ALLOW_METADATA_ONLY',
+]
 
-/** Role overrides: role → capability → decision. */
-export type RoleOverrides = Record<string, Partial<Record<WbCapability, WbDecisionKind>>>
+export type PolicyMatrix = WbPolicyMatrix
+export type RoleOverrides = WbRoleOverrides
 
 export interface Config {
   /** Classification × capability matrix (§5 default when omitted). */
@@ -206,6 +221,8 @@ declare module '@deepseek-ai/cordis' {
   interface Events {
     /** A policy decision was made. */
     'wb/policy/decision'(event: WbPolicyDecisionEvent): void
+    /** The per-role override table changed. */
+    'wb/policy/override-changed'(event: WbPolicyOverrideChangedEvent): void
   }
 }
 
@@ -224,7 +241,7 @@ export class WbPolicyService extends Service {
   static inject = ['wbIdentity', 'wbToolGateway'] as const
 
   private readonly matrix: PolicyMatrix
-  private readonly roleOverrides: RoleOverrides
+  private roleOverrides: RoleOverrides
 
   constructor(ctx: Context, config?: Config) {
     super(ctx, 'wbPolicy')
@@ -411,6 +428,58 @@ export class WbPolicyService extends Service {
   /**
    * Build a WbPolicyRequest from a tool execution.
    */
+  /**
+   * The live governance state, for an admin surface to render.
+   *
+   * Returns a deep copy: the console renders and edits a detached value and
+   * commits through {@link setRoleOverride}, so there is no path where mutating
+   * a rendered object quietly changes what `evaluate()` enforces.
+   * @returns the matrix and per-role overrides currently in force.
+   */
+  governance(): { matrix: WbPolicyMatrix; roleOverrides: WbRoleOverrides } {
+    return {
+      matrix: structuredClone(this.matrix),
+      roleOverrides: structuredClone(this.roleOverrides),
+    }
+  }
+
+  /**
+   * Replace or clear one role's overrides.
+   * @param role - the role whose overrides to replace.
+   * @param override - the new overrides, or undefined to clear the role.
+   * @throws when the role is empty, or an entry names a capability or decision
+   *   kind outside the frozen unions — a bad edit fails here rather than
+   *   silently never matching at evaluate() time.
+   */
+  setRoleOverride(
+    role: string,
+    override: Partial<Record<WbCapability, WbDecisionKind>> | undefined,
+  ): void {
+    if (!role.trim()) throw new Error('wb-policy: setRoleOverride requires a non-empty role')
+
+    if (override) {
+      for (const [capability, decision] of Object.entries(override)) {
+        if (!ALL_CAPABILITIES.includes(capability as WbCapability)) {
+          throw new Error(`wb-policy: unknown capability "${capability}" for role "${role}"`)
+        }
+        if (!ALL_DECISION_KINDS.includes(decision as WbDecisionKind)) {
+          throw new Error(`wb-policy: unknown decision "${String(decision)}" for role "${role}"`)
+        }
+      }
+      this.roleOverrides = { ...this.roleOverrides, [role]: { ...override } }
+    } else {
+      const { [role]: _removed, ...rest } = this.roleOverrides
+      this.roleOverrides = rest
+    }
+
+    // Governed <=> logged: an admin changing the table is a governance change,
+    // and invariant 4 makes it as observable as a decision.
+    const event: WbPolicyOverrideChangedEvent = override
+      ? { role, override: { ...override } }
+      : { role }
+    this.ctx.emit('wb/policy/override-changed', event)
+  }
+
   /**
    * Build a {@link WbPolicyRequest} from one tool execution.
    *
