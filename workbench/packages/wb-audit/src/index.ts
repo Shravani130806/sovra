@@ -6,6 +6,7 @@ import {
   asWbSessionId,
   asWbUserId,
   type WbAuditEntry,
+  type WbAuditFilter,
   type WbAuditEntryId,
   type WbIdentityService,
   type WbPolicyDecisionEvent,
@@ -65,6 +66,8 @@ export class WbAuditService extends Service {
   static inject = ['wbIdentity'] as const
 
   private readonly root: string
+  /** Live subscribers; see {@link subscribe}. */
+  private readonly listeners = new Set<(entry: WbAuditEntry) => void>()
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'wbAudit')
@@ -202,10 +205,30 @@ export class WbAuditService extends Service {
     const at = new Date().toISOString()
     const fullEntry: WbAuditEntry = { id, at, ...entry }
     this.appendToAudit(fullEntry)
+    for (const listener of this.listeners) {
+      try {
+        listener(fullEntry)
+      } catch (error) {
+        // A subscriber must never break the append-only write that already
+        // succeeded, nor stop the remaining subscribers from seeing the entry.
+        this.ctx.logger.warn(`wb-audit: subscriber threw: ${String(error)}`)
+      }
+    }
   }
 
-  /** Query audit entries by filter criteria. */
-  query(filter: { sessionId?: WbSessionId; userId?: WbUserId; kind?: WbAuditEntry['kind'] }): WbAuditEntry[] {
+  /**
+   * Observe entries as they are recorded.
+   * @param listener - called synchronously with each new entry.
+   * @returns the unsubscribe function.
+   */
+  subscribe(listener: (entry: WbAuditEntry) => void): () => void {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
+  }
+
+  query(filter: WbAuditFilter): WbAuditEntry[] {
     // Read all JSONL files from root directory
     if (!fs.existsSync(this.root)) return []
     const files = fs.readdirSync(this.root).filter(f => f.startsWith('audit-') && f.endsWith('.jsonl'))
@@ -224,13 +247,19 @@ export class WbAuditService extends Service {
         }
       }
     }
-    // Apply filter
-    return allEntries.filter(entry => {
+    const matched = allEntries.filter(entry => {
       if (filter.sessionId && entry.sessionId !== filter.sessionId) return false
       if (filter.userId && entry.userId !== filter.userId) return false
       if (filter.kind && entry.kind !== filter.kind) return false
+      if (filter.since && entry.at < filter.since) return false
       return true
     })
+
+    // Newest first: a live surface wants the most recent rows, and `limit`
+    // would otherwise cap the OLDEST entries and show a stale feed.
+    // Timestamps are ISO 8601, so lexicographic order is chronological.
+    matched.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))
+    return filter.limit === undefined ? matched : matched.slice(0, filter.limit)
   }
 }
 

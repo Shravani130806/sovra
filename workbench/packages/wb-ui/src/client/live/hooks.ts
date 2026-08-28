@@ -1,0 +1,41 @@
+/**
+ * React bindings for the live workbench panels.
+ * @module @mrpl/dsh-workbench-ui/client/live/hooks
+ */
+
+import { useSyncExternalStore } from 'react'
+import type { WbCitation } from '@mrpl/dsh-workbench-types'
+import {
+  getWorkbenchState,
+  subscribeWorkbench,
+  type ActivityEntry,
+  type ArtifactEntry,
+  type ChatState,
+} from './workbench-store.ts'
+
+function useWorkbench() {
+  return useSyncExternalStore(subscribeWorkbench, getWorkbenchState, getWorkbenchState)
+}
+
+/** The session's activity timeline, newest first. */
+export function useSovereignActivity(): { activityLog: ActivityEntry[]; isLoading: boolean } {
+  const { activity } = useWorkbench()
+  // No spinner state: the store is synchronous and starts empty, and an empty
+  // timeline is a real answer ("nothing has happened yet"), not a pending one.
+  return { activityLog: activity, isLoading: false }
+}
+
+/** Citations grounding the current answer. */
+export function useSourceCitations(): WbCitation[] {
+  return useWorkbench().citations
+}
+
+/** Artifacts this session has produced. */
+export function useSessionArtifacts(): ArtifactEntry[] {
+  return useWorkbench().artifacts
+}
+
+/** The composer's policy posture. */
+export function useChatState(): ChatState {
+  return useWorkbench().chat
+}

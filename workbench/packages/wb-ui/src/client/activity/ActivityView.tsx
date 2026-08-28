@@ -1,5 +1,5 @@
 import styles from './ActivityView.module.css'
-import { useSovereignActivity } from '../mock/index.ts'
+import { useSovereignActivity } from '../live/hooks.ts'
 
 export function ActivityView() {
   const { activityLog } = useSovereignActivity()

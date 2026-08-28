@@ -37,13 +37,15 @@ function timeOf(iso: string): string {
 }
 
 export interface AdminConsoleViewProps {
-  /** Audit entries to summarize; supplied by the container that queries wb-audit. */
+  /** Audit entries to summarize; supplied by the container that reads wb-audit. */
   entries: readonly WbAuditEntry[]
   /** The live policy service — the only write path into policy state. */
   policy: WbPolicyService
+  /** How many entries the container holds, so counters can say what they cover. */
+  window?: number
 }
 
-export function AdminConsoleView({ entries, policy }: AdminConsoleViewProps) {
+export function AdminConsoleView({ entries, policy, window }: AdminConsoleViewProps) {
   const [role, setRole] = useState('')
   const [capability, setCapability] = useState<WbCapability>('web_search')
   const [decision, setDecision] = useState<WbDecisionKind>('DENY')
@@ -76,7 +78,13 @@ export function AdminConsoleView({ entries, policy }: AdminConsoleViewProps) {
   return (
     <div className={styles.console}>
       <section>
-        <h2 className={styles.heading}>Overview</h2>
+        <h2 className={styles.heading}>
+          Overview
+          {window !== undefined && entries.length >= window ? (
+            // Say so rather than presenting a windowed count as a total.
+            <span className={styles.qualifier}> · last {window} events</span>
+          ) : null}
+        </h2>
         <div className={styles.counters}>
           <div className={styles.counter}>
             <span className={styles.counterValue}>{counters.users}</span>

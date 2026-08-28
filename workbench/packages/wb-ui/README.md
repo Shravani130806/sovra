@@ -54,11 +54,33 @@ Two behaviors are load-bearing and covered by tests:
 
 ## Deviations
 
-- **Everything except the security indicator still reads fixtures** from
-  `src/client/mock/`. Sources, artifacts, activity, citations, and chat state
-  are placeholder data; `useSovereignActivity` in particular will need
-  `wb-audit`'s read API, which cannot yet report policy decisions (see the
-  `wb-audit` §12 gap on missing `sessionId`/`userId` in `wb/policy/decision`).
+- ~~**Everything except the security indicator still reads fixtures.**~~
+  **RESOLVED 2026-08-28.** Activity, sources and artifacts now read live state
+  from `src/client/live/`, fed by `src/host/bridge.ts` from `wb-audit` and the
+  `wb/rag/retrieved` and `wb/policy/decision` streams. What remains fixture
+  data is chat message history and navigation, which need the harness session
+  stream (`dsh-sdk`) rather than a workbench service — a different integration,
+  tracked separately.
+
+## Live panels and their sources
+
+`wb-ui` is a client plugin and cannot hold `ctx.wbAudit` directly, so each
+panel reads a store and `src/host/bridge.ts` publishes into it host-side —
+the same seam shape the security indicator already used.
+
+| Panel | Source | Seam |
+|---|---|---|
+| Security badge | `wb/policy/decision` | `publishPolicyDecision` |
+| Activity | `wbAudit.subscribe`, backfilled from a bounded `query` | `publishAuditEntry` |
+| Sources | `wb/rag/retrieved` | `publishRetrievalCitations` |
+| Artifacts | `tool_result` entries for the four `wb_generate_*` tools | `publishAuditEntry` |
+| Composer posture | `wb/policy/decision` | `publishChatDecision` |
+
+Activity and artifacts derive from the same append-only log the audit console
+reads, so there is no second source that could disagree with it. The sources
+panel **replaces** on each retrieval rather than accumulating: carrying a
+previous query's citations forward would attribute evidence to an answer that
+never used it.
 
 ## Known Limitations and Deferred Work
 

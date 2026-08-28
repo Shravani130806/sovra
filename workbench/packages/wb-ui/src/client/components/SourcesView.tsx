@@ -1,8 +1,8 @@
-import { useMockCitations } from '../mock/index.ts'
+import { useSourceCitations } from '../live/hooks.ts'
 import styles from './SourcesView.module.css'
 
 export function SourcesView() {
-  const citations = useMockCitations()
+  const citations = useSourceCitations()
 
   if (citations.length === 0) return null
 

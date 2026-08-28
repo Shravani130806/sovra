@@ -202,9 +202,41 @@ export interface WbPolicyService {
   ): void
 }
 
+/** Narrows and bounds an audit read. */
+export interface WbAuditFilter {
+  sessionId?: WbSessionId
+  userId?: WbUserId
+  kind?: WbAuditEntry['kind']
+  /** Only entries at or after this ISO 8601 instant. */
+  since?: string
+  /**
+   * Most entries to return, newest first.
+   *
+   * Without a bound a reader must load the whole log to show its last twenty
+   * rows, which is why the console re-read every entry on a timer. A bounded
+   * read is the difference between a demo-sized log and a deployed one.
+   */
+  limit?: number
+}
+
 export interface WbAuditService {
   record(entry: Omit<WbAuditEntry, 'id' | 'at'>): void
-  query(filter: Partial<Pick<WbAuditEntry, 'sessionId' | 'userId' | 'kind'>>): WbAuditEntry[]
+  /**
+   * Read matching entries, newest first.
+   * @param filter - narrowing and bounding; an empty filter reads everything.
+   * @returns matching entries, ordered newest first and capped by `limit`.
+   */
+  query(filter: WbAuditFilter): WbAuditEntry[]
+  /**
+   * Observe entries as they are recorded.
+   *
+   * The push counterpart to {@link query}, so a live surface does not have to
+   * poll. The listener runs synchronously inside `record`, so it must not
+   * throw and must not block.
+   * @param listener - called with each newly recorded entry.
+   * @returns the unsubscribe function.
+   */
+  subscribe(listener: (entry: WbAuditEntry) => void): () => void
 }
 
 export interface WbModelGatewayService {
