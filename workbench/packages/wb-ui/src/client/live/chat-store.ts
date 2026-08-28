@@ -11,12 +11,12 @@
 import {
   asWbAuditEntryId,
   asWbSessionId,
-  asWbUserId,
   type WbCitation,
   type WbClassification,
 } from '@mrpl/dsh-workbench-types'
 import { getModelsState, selectModel, type ModelSelection } from './models-store.ts'
 import { getDocumentsState, getDocumentFullText } from './documents-store.ts'
+import { getCurrentUser } from './user-store.ts'
 import { buildTurnSystemPrompt } from './preset-prompts.ts'
 import { publishAuditEntry, publishChatDecision, publishRetrievalCitations } from './workbench-store.ts'
 import { publishPolicyDecision } from '../policy/policy-store.ts'
@@ -199,23 +199,135 @@ export function startTurn(
     const existing = state.sessions[sessionIndex]!
     const updated: ChatSession = {
       ...existing,
-      title: existing.turns.length === 0 ? title : existing.title,
       turns: nextTurns,
+      title: existing.turns.length === 0 ? title : existing.title,
       selectedModel: activeModel ?? existing.selectedModel,
       updatedAt: new Date().toISOString(),
     }
-    sessions = state.sessions.slice()
-    sessions[sessionIndex] = updated
+    sessions = state.sessions.map((s) => (s.id === state.activeSessionId ? updated : s))
   }
 
   commit({
     ...state,
-    generating: true,
-    abort,
     turns: nextTurns,
     sessions,
+    generating: true,
+    abort,
   })
+
   return assistantId
+}
+
+/**
+ * Create a new chat session.
+ */
+export function newChat(): void {
+  const newSessionId = `session-${Date.now()}`
+
+  commit({
+    ...state,
+    activeSessionId: newSessionId,
+    turns: [],
+    generating: false,
+    abort: undefined,
+  })
+}
+
+/**
+ * Switch to an existing session by ID.
+ */
+export function switchSession(sessionId: string): void {
+  const target = state.sessions.find((s) => s.id === sessionId)
+  if (!target) return
+
+  commit({
+    ...state,
+    activeSessionId: target.id,
+    turns: target.turns,
+    preset: target.preset,
+    generating: false,
+    abort: undefined,
+  })
+
+  if (target.selectedModel) {
+    void selectModel(target.selectedModel)
+  }
+}
+
+/**
+ * Delete a session by ID.
+ */
+export function deleteSession(sessionId: string): void {
+  const remaining = state.sessions.filter((s) => s.id !== sessionId)
+  const nextActive = remaining.length > 0 ? remaining[0]!.id : `session-${Date.now()}`
+  const activeSession = remaining.find((s) => s.id === nextActive)
+
+  commit({
+    ...state,
+    sessions: remaining,
+    activeSessionId: nextActive,
+    turns: activeSession ? activeSession.turns : [],
+  })
+}
+
+export function setPreset(preset: string): void {
+  commit({ ...state, preset })
+}
+
+export function setSystemPromptOverride(override?: string): void {
+  commit({ ...state, systemPromptOverride: override })
+}
+
+export function resetChat(): void {
+  turnCounter = 0
+  chatAttachmentContentMap.clear()
+  state = {
+    activeSessionId: 'session-1',
+    sessions: [],
+    turns: [],
+    generating: false,
+    preset: 'document-analyst',
+    abort: undefined,
+  }
+  for (const listener of listeners) listener()
+}
+
+/**
+ * Upsert a tool call node into the open assistant turn.
+ */
+export function upsertToolNode(node: Partial<ToolNode> & { callId: string }): void {
+  const { turns, sessions } = withLastTurn((turn) => {
+    const existingIndex = turn.tools.findIndex((t) => t.callId === node.callId)
+    let tools = turn.tools
+    if (existingIndex >= 0) {
+      const updated = { ...tools[existingIndex]!, ...node }
+      tools = tools.map((t, idx) => (idx === existingIndex ? updated : t))
+    } else {
+      const newNode: ToolNode = {
+        callId: node.callId,
+        name: node.name ?? 'unknown_tool',
+        args: node.args ?? {},
+        status: node.status ?? 'pending',
+        result: node.result,
+        decision: node.decision,
+        decisionReason: node.decisionReason,
+      }
+      tools = [...tools, newNode]
+    }
+    return { ...turn, tools }
+  })
+  commit({ ...state, turns, sessions })
+}
+
+/**
+ * Attach grounding citations to the current assistant turn.
+ */
+export function attachCitations(citations: readonly WbCitation[]): void {
+  const { turns, sessions } = withLastTurn((turn) => ({
+    ...turn,
+    citations: [...turn.citations, ...citations],
+  }))
+  commit({ ...state, turns, sessions })
 }
 
 const CLASSIFICATION_RANK: Record<string, number> = {
@@ -224,8 +336,6 @@ const CLASSIFICATION_RANK: Record<string, number> = {
   CONFIDENTIAL: 2,
   RESTRICTED: 3,
 }
-
-const DEFAULT_OPERATOR_CLEARANCE = 'INTERNAL'
 
 async function streamCompletion(
   url: string,
@@ -365,18 +475,19 @@ async function handleToolCallingAndPolicy(
 
   if (!matchedDoc) return false
 
+  const currentUser = getCurrentUser()
   const docClassification = (matchedDoc.classification ?? 'INTERNAL').toUpperCase() as WbClassification
   const docRank = CLASSIFICATION_RANK[docClassification] ?? 1
-  const userRank = CLASSIFICATION_RANK[DEFAULT_OPERATOR_CLEARANCE] ?? 1
+  const userRank = CLASSIFICATION_RANK[currentUser.clearance] ?? 1
 
   const callId = `call-${Date.now()}`
   const docContent = getDocumentFullText(matchedDoc)
   const currentSessionId = asWbSessionId(state.activeSessionId)
-  const currentUserId = asWbUserId('user-operator')
+  const currentUserId = currentUser.id
 
   if (docRank > userRank) {
     // Policy DENY
-    const reason = `Policy DENY: Document "${matchedDoc.title}" classification (${docClassification}) exceeds operator clearance (${DEFAULT_OPERATOR_CLEARANCE}).`
+    const reason = `Policy DENY: Document "${matchedDoc.title}" classification (${docClassification}) exceeds ${currentUser.displayName}'s clearance (${currentUser.clearance}).`
 
     upsertToolNode({
       callId,
@@ -405,7 +516,7 @@ async function handleToolCallingAndPolicy(
       userId: currentUserId,
       at: new Date().toISOString(),
       kind: 'policy_decision',
-      summary: `Policy DENY: Blocked read of ${docClassification} file "${matchedDoc.title}"`,
+      summary: `Policy DENY: Blocked read of ${docClassification} file "${matchedDoc.title}" for ${currentUser.displayName}`,
       payload: { decision: 'DENY', name: toolName, value: { path: matchedDoc.title, classification: docClassification } },
     })
 
@@ -413,12 +524,12 @@ async function handleToolCallingAndPolicy(
 
     // Remove raw JSON snippet and append clean policy intercept notice
     const cleanText = accumulatedAssistantText.replace(/```(?:json)?\s*[\s\S]*?\s*```/g, '').trim()
-    const denialText = `${cleanText ? cleanText + '\n\n' : ''}🛡️ **Policy Intercept (DENY)**: Access to document \`${matchedDoc.title}\` (Classification: \`${docClassification}\`) was evaluated and **blocked** by the SOVRA Policy Engine.\n\n*Reason*: The document's classification level (\`${docClassification}\`) exceeds your current session clearance (\`${DEFAULT_OPERATOR_CLEARANCE}\`). Tool execution was terminated and no unredacted contents were provided.`
+    const denialText = `${cleanText ? cleanText + '\n\n' : ''}🛡️ **Policy Intercept (DENY)**: Access to document \`${matchedDoc.title}\` (Classification: \`${docClassification}\`) was evaluated and **blocked** by the SOVRA Policy Engine.\n\n*Reason*: The document's classification level (\`${docClassification}\`) exceeds your current session clearance (\`${currentUser.clearance}\` for user **${currentUser.displayName}**). Switch to a user with \`${docClassification}\` or \`RESTRICTED\` clearance to access this document.`
     replaceLastAssistantText(denialText)
     return true
   } else {
     // Policy ALLOW
-    const reason = `Policy ALLOW: Operator clearance (${DEFAULT_OPERATOR_CLEARANCE}) satisfies classification (${docClassification}) for tool "${toolName}".`
+    const reason = `Policy ALLOW: User ${currentUser.displayName} clearance (${currentUser.clearance}) satisfies classification (${docClassification}) for tool "${toolName}".`
 
     upsertToolNode({
       callId,
@@ -447,7 +558,7 @@ async function handleToolCallingAndPolicy(
       userId: currentUserId,
       at: new Date().toISOString(),
       kind: 'policy_decision',
-      summary: `Policy ALLOW: Permitted read of ${docClassification} file "${matchedDoc.title}"`,
+      summary: `Policy ALLOW: Permitted read of ${docClassification} file "${matchedDoc.title}" for ${currentUser.displayName}`,
       payload: { decision: 'ALLOW', name: toolName, value: { path: matchedDoc.title, classification: docClassification } },
     })
 
@@ -484,7 +595,7 @@ async function handleToolCallingAndPolicy(
         ...priorTurns,
         {
           role: 'user',
-          content: `${userQuery}\n\n[Context from retrieved document "${matchedDoc.title}" (${docClassification})]:\n\"\"\"\n${docContent}\n\"\"\"\n\nPlease analyze, summarize, or answer based on the above retrieved document content according to my request. Do not dump the entire raw file verbatim; provide your interpretation and structured answer directly.`,
+          content: `${userQuery}\n\n[Context from retrieved document "${matchedDoc.title}" (${docClassification})]:\n"""\n${docContent}\n"""\n\nPlease analyze, summarize, or answer based on the above retrieved document content according to my request. Do not dump the entire raw file verbatim; provide your interpretation and structured answer directly.`,
         },
       ]
 
@@ -659,127 +770,4 @@ export function abortTurn(): boolean {
     sessions,
   })
   return true
-}
-
-export function upsertToolNode(node: Partial<ToolNode> & { callId: string }): void {
-  const { turns, sessions } = withLastTurn((turn) => {
-    const existingIndex = turn.tools.findIndex((t) => t.callId === node.callId)
-    if (existingIndex !== -1) {
-      const updated = { ...turn.tools[existingIndex]!, ...node }
-      const tools = turn.tools.slice()
-      tools[existingIndex] = updated
-      return { ...turn, tools }
-    }
-    const newNode: ToolNode = {
-      callId: node.callId,
-      name: node.name ?? '',
-      args: node.args ?? {},
-      status: node.status ?? 'pending',
-      result: node.result,
-      decision: node.decision,
-      decisionReason: node.decisionReason,
-    }
-    return { ...turn, tools: [...turn.tools, newNode] }
-  })
-  commit({ ...state, turns, sessions })
-}
-
-export function appendToolNode(node: ToolNode): void {
-  upsertToolNode(node)
-}
-
-export function updateToolNode(callId: string, patch: Partial<ToolNode>): void {
-  upsertToolNode({ callId, ...patch })
-}
-
-export function attachCitations(citations: readonly WbCitation[]): void {
-  const { turns, sessions } = withLastTurn((turn) => ({
-    ...turn,
-    citations: [...turn.citations, ...citations],
-  }))
-  commit({ ...state, turns, sessions })
-}
-
-export function appendCitation(citation: WbCitation): void {
-  attachCitations([citation])
-}
-
-export function setPreset(preset: string): void {
-  const updatedSessions = state.sessions.map((s) =>
-    s.id === state.activeSessionId
-      ? { ...s, preset, updatedAt: new Date().toISOString() }
-      : s,
-  )
-  commit({ ...state, preset, sessions: updatedSessions })
-}
-
-export function switchSession(id: string): void {
-  const session = state.sessions.find((s) => s.id === id)
-  if (!session) return
-  commit({
-    ...state,
-    activeSessionId: id,
-    turns: session.turns,
-    preset: session.preset,
-    generating: false,
-    abort: undefined,
-  })
-  if (session.selectedModel) {
-    void selectModel(session.selectedModel)
-  }
-}
-
-export const selectChatSession = switchSession
-
-export function newChat(preset = state.preset): string {
-  const id = `session-${Date.now()}`
-  commit({
-    ...state,
-    activeSessionId: id,
-    turns: [],
-    preset,
-    generating: false,
-    abort: undefined,
-  })
-  return id
-}
-
-export const createNewSession = newChat
-
-export function deleteSession(id: string): void {
-  const sessions = state.sessions.filter((s) => s.id !== id)
-  let activeSessionId = state.activeSessionId
-  let turns = state.turns
-  let preset = state.preset
-  if (activeSessionId === id) {
-    if (sessions.length > 0) {
-      const next = sessions[0]!
-      activeSessionId = next.id
-      turns = next.turns
-      preset = next.preset
-    } else {
-      activeSessionId = `session-${Date.now()}`
-      turns = []
-    }
-  }
-  commit({ ...state, sessions, activeSessionId, turns, preset })
-}
-
-export function setSystemPromptOverride(prompt?: string): void {
-  commit({ ...state, systemPromptOverride: prompt })
-}
-
-export function resetChat(): void {
-  state.abort?.abort()
-  chatAttachmentContentMap.clear()
-  const defaultId = 'session-1'
-  commit({
-    activeSessionId: defaultId,
-    sessions: [],
-    turns: [],
-    generating: false,
-    preset: 'document-analyst',
-    abort: undefined,
-    systemPromptOverride: undefined,
-  })
 }

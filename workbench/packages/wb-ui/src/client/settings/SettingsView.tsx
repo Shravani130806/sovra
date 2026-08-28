@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import styles from './SettingsView.module.css'
-import { useModels } from '../live/hooks.ts'
+import { useCurrentUser, useModels, useUsers } from '../live/hooks.ts'
 import {
   CAPABILITY_ROLES,
   CONTEXT_LENGTH_OPTIONS,
@@ -11,16 +11,20 @@ import {
   setOllamaEndpoint,
   setStrictLocalOnly,
 } from '../live/models-store.ts'
+import { switchUser } from '../live/user-store.ts'
 import { navigate } from '../live/navigation-store.ts'
 
 export function SettingsView() {
   const [activeTab, setActiveTab] = useState('Models & Ollama')
   const { groups, current, capabilityRouting, status, error, ollamaEndpoint, strictLocalOnly } = useModels()
+  const currentUser = useCurrentUser()
+  const { users } = useUsers()
   const [endpointInput, setEndpointInput] = useState(ollamaEndpoint)
   const [testResult, setTestResult] = useState<string | null>(null)
 
   const tabs = [
     'Models & Ollama',
+    'Users & Access Control',
     'Appearance',
     'Workspace',
     'Agent Preferences',
@@ -201,6 +205,72 @@ export function SettingsView() {
             </div>
           )}
 
+          {activeTab === 'Users & Access Control' && (
+            <div className={styles.settingGroup}>
+              <div className={styles.settingRow}>
+                <div className={styles.settingInfo}>
+                  <div className={styles.settingTitle}>Identity &amp; Role-Based Access Control (RBAC)</div>
+                  <div className={styles.settingDesc}>
+                    Manage active workbench identity, permissions, and security clearances.
+                  </div>
+                </div>
+              </div>
+
+              <div className={styles.userGrid}>
+                {users.map((u) => {
+                  const isActive = u.id === currentUser.id
+                  const clearanceClass = styles[`clearance${u.clearance}`] ?? styles.clearanceINTERNAL
+                  const clearanceDescription =
+                    u.clearance === 'RESTRICTED'
+                      ? 'Full Clearance: Authorized for PUBLIC, INTERNAL, CONFIDENTIAL, and RESTRICTED files.'
+                      : u.clearance === 'CONFIDENTIAL'
+                        ? 'High Clearance: Authorized for PUBLIC, INTERNAL, and CONFIDENTIAL files.'
+                        : u.clearance === 'INTERNAL'
+                          ? 'Standard Clearance: Authorized for PUBLIC and INTERNAL files.'
+                          : 'Public Clearance: Restricted to PUBLIC data only.'
+
+                  return (
+                    <div
+                      key={u.id}
+                      className={`${styles.userCardItem} ${isActive ? styles.userCardItemActive : ''}`}
+                    >
+                      <div className={styles.userCardLeft}>
+                        <div className={styles.userCardHeader}>
+                          <span className={styles.userCardName}>{u.displayName}</span>
+                          <span className={`${styles.clearanceBadge} ${clearanceClass}`}>
+                            {u.clearance}
+                          </span>
+                        </div>
+                        <div className={styles.userCardRole}>
+                          {u.role} • {u.department}
+                        </div>
+                        <div className={styles.userCardMeta}>
+                          {clearanceDescription}
+                        </div>
+                      </div>
+
+                      <div className={styles.userCardRight}>
+                        {isActive ? (
+                          <div className={styles.activeUserBadge}>
+                            ✓ Active User
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            className={styles.switchBtn}
+                            onClick={() => switchUser(u.id)}
+                          >
+                            Switch to this User
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {activeTab === 'Security' && (
             <div className={styles.settingGroup}>
               <div className={styles.settingRow}>
@@ -217,11 +287,13 @@ export function SettingsView() {
             </div>
           )}
 
-          {activeTab !== 'Models & Ollama' && activeTab !== 'Security' && (
-            <p className={styles.stubNotice}>
-              Configure {activeTab.toLowerCase()} options for sovereign operation.
-            </p>
-          )}
+          {activeTab !== 'Models & Ollama' &&
+            activeTab !== 'Users & Access Control' &&
+            activeTab !== 'Security' && (
+              <p className={styles.stubNotice}>
+                Configure {activeTab.toLowerCase()} options for sovereign operation.
+              </p>
+            )}
         </div>
       </div>
     </div>

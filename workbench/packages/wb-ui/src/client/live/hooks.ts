@@ -4,7 +4,7 @@
  */
 
 import { useSyncExternalStore } from 'react'
-import type { WbCitation } from '@mrpl/dsh-workbench-types'
+import type { WbCitation, WbUser } from '@mrpl/dsh-workbench-types'
 import {
   getWorkbenchState,
   subscribeWorkbench,
@@ -17,6 +17,7 @@ import { getDocumentsState, subscribeDocuments } from './documents-store.ts'
 import { getVisionState, subscribeVision } from './vision-store.ts'
 import { getNavigationState, subscribeNavigation } from './navigation-store.ts'
 import { getModelsState, subscribeModels } from './models-store.ts'
+import { getUsersState, subscribeUser } from './user-store.ts'
 
 function useWorkbench() {
   return useSyncExternalStore(subscribeWorkbench, getWorkbenchState, getWorkbenchState)
@@ -68,4 +69,15 @@ export function useNavigation() {
 /** Available models, current selection, and Ollama configuration. */
 export function useModels() {
   return useSyncExternalStore(subscribeModels, getModelsState, getModelsState)
+}
+
+/** Current user identity and RBAC clearance. */
+export function useCurrentUser(): WbUser {
+  const state = useSyncExternalStore(subscribeUser, getUsersState, getUsersState)
+  return state.currentUser
+}
+
+/** All configured users for switching and management. */
+export function useUsers(): { currentUser: WbUser; users: WbUser[] } {
+  return useSyncExternalStore(subscribeUser, getUsersState, getUsersState)
 }
