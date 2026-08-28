@@ -2,15 +2,20 @@ import { useState } from 'react'
 import styles from './SettingsView.module.css'
 import { useModels } from '../live/hooks.ts'
 import {
+  CAPABILITY_ROLES,
+  CONTEXT_LENGTH_OPTIONS,
+  DEFAULT_CONTEXT_LENGTH,
   fetchOllamaModels,
   selectModel,
+  setContextLength,
   setOllamaEndpoint,
   setStrictLocalOnly,
 } from '../live/models-store.ts'
+import { navigate } from '../live/navigation-store.ts'
 
 export function SettingsView() {
   const [activeTab, setActiveTab] = useState('Models & Ollama')
-  const { groups, current, status, error, ollamaEndpoint, strictLocalOnly } = useModels()
+  const { groups, current, capabilityRouting, status, error, ollamaEndpoint, strictLocalOnly } = useModels()
   const [endpointInput, setEndpointInput] = useState(ollamaEndpoint)
   const [testResult, setTestResult] = useState<string | null>(null)
 
@@ -54,8 +59,8 @@ export function SettingsView() {
               className={`${styles.tab} ${activeTab === tab ? styles.tabActive : ''}`}
               onClick={() => setActiveTab(tab)}
             >
-              {tab
-            }</div>
+              {tab}
+            </div>
           ))}
         </div>
 
@@ -99,7 +104,7 @@ export function SettingsView() {
 
               <div className={styles.settingRow}>
                 <div className={styles.settingInfo}>
-                  <div className={styles.settingTitle}>Active Model</div>
+                  <div className={styles.settingTitle}>Active Chat Model</div>
                   <div className={styles.settingDesc}>
                     Current sovereign model used across sessions and chat turns.
                   </div>
@@ -117,7 +122,7 @@ export function SettingsView() {
                     {groups.flatMap((g) =>
                       g.models.map((m) => (
                         <option key={`${g.id}/${m.id}`} value={`${g.id}/${m.id}`}>
-                          [{g.name}] {m.name}
+                          {g.name}: {m.name}
                         </option>
                       )),
                     )}
@@ -127,82 +132,70 @@ export function SettingsView() {
 
               <div className={styles.settingRow}>
                 <div className={styles.settingInfo}>
-                  <div className={styles.settingTitle}>Strict Local-Only Enforcement</div>
+                  <div className={styles.settingTitle}>Context Window (Tokens)</div>
                   <div className={styles.settingDesc}>
-                    Prohibit fallback to cloud providers. Guarantees 100% on-premise execution.
+                    Maximum context length allocated during local model inference (Ollama num_ctx).
                   </div>
                 </div>
                 <div className={styles.settingControl}>
                   <select
-                    value={strictLocalOnly ? 'on' : 'off'}
-                    onChange={(e) => setStrictLocalOnly(e.target.value === 'on')}
+                    value={current?.contextLength ?? DEFAULT_CONTEXT_LENGTH}
+                    onChange={(e) => setContextLength(Number(e.target.value))}
                   >
-                    <option value="on">Enabled (Strict Air-Gapped)</option>
-                    <option value="off">Disabled</option>
+                    {CONTEXT_LENGTH_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
 
-              <div className={styles.settingGroup}>
-                <div className={styles.settingTitle}>Available Ollama Models</div>
-                <div className={styles.modelCardList}>
-                  {ollamaGroup?.models.map((model) => (
-                    <div key={model.id} className={styles.modelCard}>
-                      <div>
-                        <div className={styles.modelName}>{model.name}</div>
-                        <div className={styles.modelDetail}>{model.description}</div>
-                      </div>
-                      <span className={styles.badge}>Air-gapped</span>
-                    </div>
-                  ))}
+              <div className={styles.settingRow}>
+                <div className={styles.settingInfo}>
+                  <div className={styles.settingTitle}>Strict Air-Gapped Mode</div>
+                  <div className={styles.settingDesc}>
+                    Prohibit non-local inference providers. Every turn executes strictly on-premise.
+                  </div>
+                </div>
+                <div className={styles.settingControl}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={strictLocalOnly}
+                      onChange={(e) => setStrictLocalOnly(e.target.checked)}
+                    />
+                    Enforce local-only execution
+                  </label>
                 </div>
               </div>
-            </div>
-          )}
 
-          {activeTab === 'Appearance' && (
-            <div className={styles.settingGroup}>
               <div className={styles.settingRow}>
                 <div className={styles.settingInfo}>
-                  <div className={styles.settingTitle}>Theme</div>
-                  <div className={styles.settingDesc}>Choose how the workbench looks.</div>
+                  <div className={styles.settingTitle}>Capability-Based Model Matrix</div>
+                  <div className={styles.settingDesc}>
+                    Fine-grained model allocation for Coding, Embedding, Reranking, OCR, and Vision.
+                  </div>
                 </div>
                 <div className={styles.settingControl}>
-                  <select defaultValue="dark">
-                    <option value="dark">Dark (Default)</option>
-                    <option value="light">Light</option>
-                    <option value="system">System Settings</option>
-                  </select>
-                </div>
-              </div>
-              <div className={styles.settingRow}>
-                <div className={styles.settingInfo}>
-                  <div className={styles.settingTitle}>Information Density</div>
-                  <div className={styles.settingDesc}>Control how compact the interface is.</div>
-                </div>
-                <div className={styles.settingControl}>
-                  <select defaultValue="compact">
-                    <option value="comfortable">Comfortable</option>
-                    <option value="compact">Compact</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'Agent Preferences' && (
-            <div className={styles.settingGroup}>
-              <div className={styles.settingRow}>
-                <div className={styles.settingInfo}>
-                  <div className={styles.settingTitle}>Default Agent</div>
-                  <div className={styles.settingDesc}>The preset selected when opening a new chat.</div>
-                </div>
-                <div className={styles.settingControl}>
-                  <select defaultValue="analyst">
-                    <option value="analyst">Document Analyst</option>
-                    <option value="vision">Engineering Vision</option>
-                    <option value="code">Code Analysis</option>
-                  </select>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                    {CAPABILITY_ROLES.map((r) => {
+                      const sel = capabilityRouting[r.id]
+                      return (
+                        <div key={r.id} style={{ fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+                          <span style={{ color: 'var(--wb-text-secondary, #a1a1aa)' }}>{r.title}:</span>
+                          <strong>{sel ? `${sel.provider}/${sel.model}` : 'Default'}</strong>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.actionBtn}
+                    onClick={() => navigate('models')}
+                  >
+                    Open Model Routing Matrix →
+                  </button>
                 </div>
               </div>
             </div>
@@ -212,22 +205,21 @@ export function SettingsView() {
             <div className={styles.settingGroup}>
               <div className={styles.settingRow}>
                 <div className={styles.settingInfo}>
-                  <div className={styles.settingTitle}>Strict Enforcement Mode</div>
-                  <div className={styles.settingDesc}>Globally block all external actions regardless of clearance.</div>
+                  <div className={styles.settingTitle}>Sovereign Security Boundary</div>
+                  <div className={styles.settingDesc}>
+                    State of egress gating and local container isolation.
+                  </div>
                 </div>
                 <div className={styles.settingControl}>
-                  <select defaultValue="on">
-                    <option value="on">Enabled</option>
-                    <option value="off">Disabled</option>
-                  </select>
+                  <span style={{ color: '#22c55e', fontWeight: 600 }}>Active (Enforcing Air-Gap)</span>
                 </div>
               </div>
             </div>
           )}
 
-          {['Workspace', 'Notifications', 'About'].includes(activeTab) && (
-            <p style={{ color: 'var(--wb-text-secondary)' }}>
-              Configuration for {activeTab.toLowerCase()} will appear here.
+          {activeTab !== 'Models & Ollama' && activeTab !== 'Security' && (
+            <p className={styles.stubNotice}>
+              Configure {activeTab.toLowerCase()} options for sovereign operation.
             </p>
           )}
         </div>

@@ -2,11 +2,13 @@ import { describe, expect, it, beforeEach, vi } from 'vitest'
 import {
   getModelsState,
   selectModel,
+  setCapabilityModel,
   setOllamaEndpoint,
   setStrictLocalOnly,
   fetchOllamaModels,
   resetModelsState,
   DEFAULT_OLLAMA_ENDPOINT,
+  DEFAULT_CAPABILITY_ROUTING,
 } from '../src/client/live/models-store.ts'
 
 describe('models-store', () => {
@@ -27,9 +29,10 @@ describe('models-store', () => {
     })
     expect(state.strictLocalOnly).toBe(true)
     expect(state.ollamaEndpoint).toBe(DEFAULT_OLLAMA_ENDPOINT)
+    expect(state.capabilityRouting).toEqual(DEFAULT_CAPABILITY_ROUTING)
   })
 
-  it('selects an available model successfully', async () => {
+  it('selects an available model successfully and updates main_chat routing', async () => {
     const result = await selectModel({
       provider: 'ollama',
       model: 'gemma4:e2b',
@@ -38,7 +41,23 @@ describe('models-store', () => {
     const state = getModelsState()
     expect(state.current?.model).toBe('gemma4:e2b')
     expect(state.current?.reasoningEffort).toBe('medium')
+    expect(state.capabilityRouting.main_chat.model).toBe('gemma4:e2b')
     expect(state.error).toBeNull()
+  })
+
+  it('configures capability-specific models across all roles', () => {
+    setCapabilityModel('embedding', { provider: 'ollama', model: 'nomic-embed-text' })
+    setCapabilityModel('rerank', { provider: 'ollama', model: 'bge-reranker-large' })
+    setCapabilityModel('ocr', { provider: 'ollama', model: 'glm-ocr:q8_0' })
+    setCapabilityModel('coding', { provider: 'deepseek', model: 'deepseek-v4-flash' })
+    setCapabilityModel('vision_reasoning', { provider: 'ollama', model: 'qwen3.5:2b' })
+
+    const state = getModelsState()
+    expect(state.capabilityRouting.embedding.model).toBe('nomic-embed-text')
+    expect(state.capabilityRouting.rerank.model).toBe('bge-reranker-large')
+    expect(state.capabilityRouting.ocr.model).toBe('glm-ocr:q8_0')
+    expect(state.capabilityRouting.coding.model).toBe('deepseek-v4-flash')
+    expect(state.capabilityRouting.vision_reasoning.model).toBe('qwen3.5:2b')
   })
 
   it('allows customizing reasoning effort when selecting reasoning model', async () => {
@@ -84,7 +103,7 @@ describe('models-store', () => {
     const mockModels = {
       models: [
         { name: 'qwen3.5:2b', details: { parameter_size: '2.3B' }, capabilities: ['completion', 'thinking', 'vision'] },
-        { name: 'gemma4:e2b', details: { parameter_size: '5.1B' }, capabilities: ['completion', 'thinking'] },
+        { name: 'nomic-embed-text', details: { parameter_size: '137M' }, capabilities: ['embedding'] },
       ],
     }
 
@@ -101,6 +120,7 @@ describe('models-store', () => {
     expect(ollamaGroup?.models[0]!.id).toBe('qwen3.5:2b')
     expect(ollamaGroup?.models[0]!.capabilities).toContain('reasoning')
     expect(ollamaGroup?.models[0]!.capabilities).toContain('image')
+    expect(ollamaGroup?.models[1]!.capabilities).toContain('embedding')
   })
 
   it('handles Ollama connection failure cleanly', async () => {

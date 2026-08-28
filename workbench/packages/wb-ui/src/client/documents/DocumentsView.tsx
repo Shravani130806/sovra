@@ -7,6 +7,7 @@ import {
   CLASSIFICATIONS,
   DEFAULT_CLASSIFICATION,
   completeUpload,
+  createChunksFromText,
   markUploading,
   queueUpload,
 } from '../live/documents-store.ts'
@@ -32,27 +33,47 @@ export function DocumentsView({ onIngest }: DocumentsViewProps) {
   const input = useRef<HTMLInputElement>(null)
 
   function accept(files: FileList | null) {
-    for (const file of Array.from(files ?? [])) {
-      // Queue first, notify second. The band is chosen BEFORE the file is
-      // read, so nothing is ever ingested at a classification the uploader
-      // did not pick.
-      const jobId = queueUpload(file.name, classification)
+    const fileList = Array.from(files ?? [])
+    // Queue all files first synchronously so the upload job queue is immediately populated.
+    const jobs = fileList.map((file) => ({
+      file,
+      jobId: queueUpload(file.name, classification),
+    }))
+
+    for (const { file, jobId } of jobs) {
       if (onIngest) {
         onIngest(jobId, file, classification)
       } else {
         // Standalone / client fallback: process the ingestion so queued files
-        // transition to ingesting and land in the corpus table.
+        // transition to ingesting and land in the corpus table with full text.
         markUploading(jobId)
-        setTimeout(() => {
-          completeUpload(jobId, {
-            id: asWbDocumentId(`doc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`),
-            title: file.name,
-            classification,
-            declaredClassification: classification,
-            chunks: Math.max(1, Math.ceil(file.size / 1024)),
-            ingestedAt: new Date().toISOString(),
-          })
-        }, 150)
+        void (async () => {
+          let textContent = ''
+          try {
+            if (typeof file.text === 'function') {
+              textContent = await file.text()
+            }
+          } catch {
+            // ignore binary read failure
+          }
+
+          const chunksData = textContent ? createChunksFromText(textContent) : undefined
+          const chunkCount =
+            chunksData && chunksData.length > 0 ? chunksData.length : Math.max(1, Math.ceil(file.size / 1024))
+
+          setTimeout(() => {
+            completeUpload(jobId, {
+              id: asWbDocumentId(`doc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`),
+              title: file.name,
+              classification,
+              declaredClassification: classification,
+              chunks: chunkCount,
+              content: textContent || undefined,
+              chunksData: chunksData || undefined,
+              ingestedAt: new Date().toISOString(),
+            })
+          }, 150)
+        })()
       }
     }
   }

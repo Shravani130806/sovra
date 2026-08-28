@@ -3,7 +3,7 @@
  *
  * Replaces the static indicator with a provider-grouped model picker
  * allowing live switching of local Ollama models, reasoning levels,
- * and endpoint refresh.
+ * context length windows, and endpoint refresh.
  *
  * @module @mrpl/dsh-workbench-ui/client/conversation/ModelSelector
  */
@@ -11,8 +11,11 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import styles from './ModelSelector.module.css'
 import {
+  CONTEXT_LENGTH_OPTIONS,
+  DEFAULT_CONTEXT_LENGTH,
   fetchOllamaModels,
   selectModel,
+  setContextLength,
   type ModelEntry,
   type ModelGroup,
   type ModelSelection,
@@ -45,6 +48,9 @@ export function ModelSelector({ onSelect }: ModelSelectorProps) {
     ? currentModel?.reasoning?.efforts.find((e) => e.id === current.reasoningEffort)?.name ?? current.reasoningEffort
     : undefined
 
+  const activeCtx = current?.contextLength ?? DEFAULT_CONTEXT_LENGTH
+  const activeCtxLabel = activeCtx >= 1024 ? `${Math.round(activeCtx / 1024)}k` : `${activeCtx}`
+
   // Close when clicking outside
   useEffect(() => {
     if (!open) return
@@ -66,6 +72,7 @@ export function ModelSelector({ onSelect }: ModelSelectorProps) {
       provider: group.id,
       model: model.id,
       ...(model.reasoning?.defaultEffort ? { reasoningEffort: model.reasoning.defaultEffort } : {}),
+      ...(current?.contextLength !== undefined ? { contextLength: current.contextLength } : {}),
     }
 
     const success = await selectModel(nextSelection)
@@ -84,6 +91,13 @@ export function ModelSelector({ onSelect }: ModelSelectorProps) {
     const success = await selectModel(nextSelection)
     if (success) {
       onSelect?.(nextSelection)
+    }
+  }
+
+  const handleSelectContextLength = (len: number) => {
+    setContextLength(len)
+    if (current) {
+      onSelect?.({ ...current, contextLength: len })
     }
   }
 
@@ -107,11 +121,12 @@ export function ModelSelector({ onSelect }: ModelSelectorProps) {
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={`Current model: ${activeModelLabel}`}
-        title={`Model: ${activeModelLabel}${activeEffortLabel ? ` (${activeEffortLabel})` : ''}`}
+        title={`Model: ${activeModelLabel}${activeEffortLabel ? ` (${activeEffortLabel})` : ''} [Ctx: ${activeCtxLabel}]`}
         onClick={handleToggle}
       >
         <span className={styles.triggerLabel}>
           <span>Model: {activeModelLabel}</span>
+          <span className={styles.contextBadge}>{activeCtxLabel}</span>
           {strictLocalOnly && <span className={styles.localBadge}>Local</span>}
           {activeEffortLabel && <span className={styles.effortBadge}>{activeEffortLabel}</span>}
         </span>
@@ -217,6 +232,27 @@ export function ModelSelector({ onSelect }: ModelSelectorProps) {
               })}
             </div>
           ))}
+
+          <div className={styles.effortSection}>
+            <div className={styles.effortTitle}>Context Length (Tokens)</div>
+            <div className={styles.effortButtons}>
+              {CONTEXT_LENGTH_OPTIONS.map((opt) => {
+                const isActive = activeCtx === opt.value
+                const shortLabel = opt.value >= 1024 ? `${Math.round(opt.value / 1024)}K` : `${opt.value}`
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    className={`${styles.effortButton} ${isActive ? styles.contextButtonActive : ''}`}
+                    title={opt.label}
+                    onClick={() => handleSelectContextLength(opt.value)}
+                  >
+                    {shortLabel}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
 
           {currentModel?.reasoning && (
             <div className={styles.effortSection}>

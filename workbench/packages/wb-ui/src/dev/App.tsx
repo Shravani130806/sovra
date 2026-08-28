@@ -46,6 +46,7 @@ function Sidebar() {
         <NavItem label="🔍  Search" target="search" />
         <NavItem label="📄  Documents" target="documents" />
         <NavItem label="🔧  Engineering Vision" target="vision" />
+        <NavItem label="🤖  Model Routing" target="models" />
         <NavItem label="📊  Activity" target="activity" />
         <NavItem label="🛡️  Security" target="security" />
 

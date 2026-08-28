@@ -9411,6 +9411,12 @@ importers:
 
   workbench/packages/wb-rag:
     dependencies:
+      '@deepseek-ai/dsh-home-paths':
+        specifier: workspace:*
+        version: link:../../../packages/util/home-paths
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
       '@mrpl/dsh-workbench-types':
         specifier: workspace:*
         version: link:../wb-types

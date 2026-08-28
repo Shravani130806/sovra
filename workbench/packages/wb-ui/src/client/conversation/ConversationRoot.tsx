@@ -11,6 +11,7 @@ import { ActivityView } from '../activity/ActivityView.tsx'
 import { SecurityConsoleView } from '../security/SecurityConsoleView.tsx'
 import { SettingsView } from '../settings/SettingsView.tsx'
 import { SearchView } from '../search/SearchView.tsx'
+import { ModelRoutingView } from '../models/ModelRoutingView.tsx'
 import { useChat, useNavigation } from '../live/hooks.ts'
 import { dispatchTurnToModel } from '../live/chat-store.ts'
 
@@ -49,6 +50,8 @@ export function ConversationRoot(_props: ConvOwnerProps) {
       return <SettingsView />
     case 'search':
       return <SearchView />
+    case 'models':
+      return <ModelRoutingView />
     case 'chat':
     default:
       return (

@@ -8,7 +8,8 @@
     { "path": "../../../vendor/cosmokit" },
     { "path": "../../../vendor/cordis" },
     { "path": "../../../vendor/schemastery" },
-    { "path": "../wb-types" }
+    { "path": "../wb-types" },
+    { "path": "../../../packages/util/home-paths" }
   ],
   "include": ["src"]
 }

@@ -21,6 +21,13 @@ export const CLASSIFICATIONS: readonly WbClassification[] = [
 /** The band a new upload is offered at unless the user changes it. */
 export const DEFAULT_CLASSIFICATION: WbClassification = 'INTERNAL'
 
+export interface DocumentChunk {
+  id: string
+  text: string
+  page?: number | undefined
+  section?: string | undefined
+}
+
 /** One document in the corpus. */
 export interface CorpusDocument {
   id: WbDocumentId
@@ -31,6 +38,8 @@ export interface CorpusDocument {
   declaredClassification: WbClassification
   chunks: number
   ingestedAt: string
+  content?: string | undefined
+  chunksData?: DocumentChunk[] | undefined
 }
 
 /** One upload in progress or recently settled. */
@@ -40,10 +49,10 @@ export interface UploadJob {
   declaredClassification: WbClassification
   status: 'queued' | 'ingesting' | 'done' | 'failed'
   /** Assigned once ingestion succeeds. */
-  documentId?: WbDocumentId
+  documentId?: WbDocumentId | undefined
   /** Set when the band was raised above what the uploader declared. */
-  raisedTo?: WbClassification
-  error?: string
+  raisedTo?: WbClassification | undefined
+  error?: string | undefined
 }
 
 export interface DocumentsState {
@@ -52,6 +61,48 @@ export interface DocumentsState {
 }
 
 export const INITIAL_DOCUMENTS: DocumentsState = { documents: [], uploads: [] }
+
+export function createChunksFromText(text: string): DocumentChunk[] {
+  const paragraphs = text
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+
+  if (paragraphs.length === 0) {
+    return text.trim() ? [{ id: 'c1', text: text.trim(), page: 1, section: 'Section 1' }] : []
+  }
+
+  const chunks: DocumentChunk[] = []
+  let currentText = ''
+  let pageNum = 1
+  let chunkIdx = 1
+
+  for (const para of paragraphs) {
+    if (currentText.length + para.length > 500 && currentText.length > 0) {
+      chunks.push({
+        id: `c${chunkIdx}`,
+        text: currentText.trim(),
+        page: pageNum,
+        section: `Section ${chunkIdx}`,
+      })
+      chunkIdx++
+      currentText = ''
+      if (chunkIdx % 2 === 0) pageNum++
+    }
+    currentText += (currentText ? '\n\n' : '') + para
+  }
+
+  if (currentText.trim()) {
+    chunks.push({
+      id: `c${chunkIdx}`,
+      text: currentText.trim(),
+      page: pageNum,
+      section: `Section ${chunkIdx}`,
+    })
+  }
+
+  return chunks
+}
 
 function loadPersistedDocuments(): DocumentsState {
   if (typeof window === 'undefined' || !window.localStorage) return INITIAL_DOCUMENTS

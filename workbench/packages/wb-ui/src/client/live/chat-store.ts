@@ -1,123 +1,117 @@
 /**
- * The conversation: turns, streaming text, tool execution, and cancellation.
+ * Live chat state behind the conversation pane.
  *
- * Holds what the composer and message list render. Like the other stores here,
- * it is a plain observable the host bridge publishes into — `wb-ui` runs in the
- * browser and directly streams turns via the configured sovereign model runtime
- * or transport bridge.
+ * Owns the turn history, streaming buffer, session list, active preset and
+ * tool-call cards. Emits notifications on each change so React views can
+ * rerender via `useSyncExternalStore` technique.
+ *
  * @module @mrpl/dsh-workbench-ui/client/live/chat-store
  */
 
-import type { WbCitation, WbDecisionKind } from '@mrpl/dsh-workbench-types'
+import type { WbCitation } from '@mrpl/dsh-workbench-types'
 import { getModelsState, selectModel, type ModelSelection } from './models-store.ts'
+import { getDocumentsState } from './documents-store.ts'
+import { buildTurnSystemPrompt } from './preset-prompts.ts'
 
-const STORAGE_KEY = 'sovra_wb_chat_v1'
-
-/** One tool call shown inline in an assistant turn. */
 export interface ToolNode {
   callId: string
   name: string
-  /** Arguments as the model produced them, for the collapsed preview. */
   args: Record<string, unknown>
-  status: 'pending' | 'running' | 'done' | 'error' | 'denied'
-  /** The policy verdict, once the gate has ruled on this call. */
-  decision?: WbDecisionKind | undefined
-  /** Why policy refused, shown on the card rather than only in the audit log. */
+  status: 'pending' | 'running' | 'done' | 'denied'
+  result?: unknown
+  decision?: string | undefined
   decisionReason?: string | undefined
-  /** Result text once settled; an error message when `status` is `error`. */
-  result?: string | undefined
 }
 
-/** One conversation turn. */
-export interface Turn {
+export interface ChatTurn {
   id: string
   role: 'user' | 'assistant'
   text: string
-  /** Files attached to this turn, shown as badges above the text. */
-  attachments?: string[] | undefined
-  /** Tool calls this assistant turn made, in call order. */
+  streaming?: boolean | undefined
+  citations: readonly WbCitation[]
   tools: ToolNode[]
-  /** Sources this turn's answer is grounded in. */
-  citations: WbCitation[]
-  /** True while the assistant turn is still streaming. */
-  streaming: boolean
-  /** Model that served this turn */
-  model?: string | undefined
+  attachments?: string[] | undefined
 }
 
-/** A conversation session in chat history. */
 export interface ChatSession {
   id: string
   title: string
+  turns: ChatTurn[]
   preset: string
-  turns: Turn[]
   selectedModel?: ModelSelection | undefined
-  createdAt: string
   updatedAt: string
 }
 
 export interface ChatState {
   activeSessionId: string
   sessions: ChatSession[]
-  turns: Turn[]
-  /** True from send until the assistant turn settles. */
+  turns: ChatTurn[]
   generating: boolean
-  /** The preset answering, shown in the header. */
   preset: string
-  /** Set while generating, so the composer can offer Stop. */
-  abort: AbortController | undefined
+  abort?: AbortController | undefined
+  systemPromptOverride?: string | undefined
 }
 
-export const INITIAL_CHAT: ChatState = {
-  activeSessionId: 'sess-1',
-  sessions: [],
-  turns: [],
+const STORAGE_KEY = 'dsh:workbench:chat_sessions'
+
+function loadSavedSessions(): { sessions: ChatSession[]; activeSessionId: string } {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw) as { sessions?: ChatSession[]; activeSessionId?: string }
+        if (parsed.sessions && parsed.sessions.length > 0) {
+          const activeSessionId = parsed.activeSessionId ?? parsed.sessions[0]!.id
+          return { sessions: parsed.sessions, activeSessionId }
+        }
+      }
+    } catch {
+      // Ignore parse failure, fall back to empty
+    }
+  }
+  const defaultId = 'session-1'
+  return {
+    sessions: [
+      {
+        id: defaultId,
+        title: 'New Session',
+        turns: [],
+        preset: 'document-analyst',
+        updatedAt: new Date().toISOString(),
+      },
+    ],
+    activeSessionId: defaultId,
+  }
+}
+
+function saveSessions(sessions: ChatSession[], activeSessionId: string): void {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ sessions, activeSessionId }),
+      )
+    } catch {
+      // Ignore storage errors
+    }
+  }
+}
+
+const initialData = loadSavedSessions()
+const initialActiveSession = initialData.sessions.find((s) => s.id === initialData.activeSessionId) ?? initialData.sessions[0]!
+
+export const INITIAL_CHAT_STATE: ChatState = {
+  activeSessionId: initialData.activeSessionId,
+  sessions: initialData.sessions,
+  turns: initialActiveSession.turns,
   generating: false,
-  preset: 'document-analyst',
+  preset: initialActiveSession.preset ?? 'document-analyst',
   abort: undefined,
 }
 
-function loadPersistedChat(): ChatState {
-  if (typeof window === 'undefined' || !window.localStorage) return INITIAL_CHAT
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
-    if (!raw) return INITIAL_CHAT
-    const parsed = JSON.parse(raw) as Partial<ChatState>
-    if (parsed && Array.isArray(parsed.sessions) && parsed.sessions.length > 0) {
-      const active = parsed.sessions.find((s) => s.id === parsed.activeSessionId) ?? parsed.sessions[0]!
-      return {
-        ...INITIAL_CHAT,
-        activeSessionId: active.id,
-        sessions: parsed.sessions,
-        turns: (active.turns ?? []).map((t) => ({ ...t, streaming: false })),
-        preset: active.preset ?? 'document-analyst',
-      }
-    }
-  } catch {
-    // Storage unavailable or corrupted JSON
-  }
-  return INITIAL_CHAT
-}
-
-function savePersistedChat(next: ChatState): void {
-  if (typeof window === 'undefined' || !window.localStorage) return
-  try {
-    window.localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        activeSessionId: next.activeSessionId,
-        sessions: next.sessions,
-      }),
-    )
-  } catch {
-    // Ignore quota or private browsing errors
-  }
-}
-
-let state: ChatState = loadPersistedChat()
+let state: ChatState = INITIAL_CHAT_STATE
 const listeners = new Set<() => void>()
 
-/** Subscribe to conversation changes. */
 export function subscribeChat(listener: () => void): () => void {
   listeners.add(listener)
   return () => {
@@ -125,93 +119,65 @@ export function subscribeChat(listener: () => void): () => void {
   }
 }
 
-/** Read the current conversation; identity is stable until it changes. */
 export function getChatState(): ChatState {
   return state
 }
 
 function commit(next: ChatState): void {
   state = next
-  savePersistedChat(next)
+  saveSessions(next.sessions, next.activeSessionId)
   for (const listener of listeners) listener()
 }
 
-/** Replace the last turn, which is the one being streamed into. */
-function withLastTurn(update: (turn: Turn) => Turn): { turns: Turn[]; sessions: ChatSession[] } {
-  if (state.turns.length === 0) return { turns: state.turns, sessions: state.sessions }
-  const turns = state.turns.slice()
-  turns[turns.length - 1] = update(turns[turns.length - 1]!)
-
-  const sessions = syncSessionTurns(state.sessions, state.activeSessionId, turns)
-  return { turns, sessions }
+let turnCounter = 0
+function nextTurnId(prefix = 'turn'): string {
+  turnCounter += 1
+  return `${prefix}-${Date.now()}-${turnCounter}`
 }
-
-function syncSessionTurns(sessions: ChatSession[], sessionId: string, turns: Turn[]): ChatSession[] {
-  const index = sessions.findIndex((s) => s.id === sessionId)
-  if (index === -1) return sessions
-  const updated: ChatSession = {
-    ...sessions[index]!,
-    turns,
-    updatedAt: new Date().toISOString(),
-  }
-  const next = sessions.slice()
-  next[index] = updated
-  return next
-}
-
-let counter = 0
-const nextId = (): string => `t${++counter}`
-let sessionCounter = 1
-const nextSessionId = (): string => `sess-${++sessionCounter}-${Date.now().toString(36)}`
 
 /**
- * Append the user's message and open the assistant turn it will be answered in.
- *
- * Both turns are created together so the message list never shows a question
- * with no visible response forming.
- * @param text - the user's message.
- * @param abort - the controller the transport will honour for Stop.
- * @param attachments - optional list of attached file names.
- * @returns the id of the assistant turn to stream into.
+ * Start a user turn and an open assistant turn.
+ * @returns the assistant turn ID so the caller can stream deltas into it.
  */
-export function startTurn(text: string, abort: AbortController, attachments?: string[]): string {
-  const assistantId = nextId()
-  const activeModel = getModelsState().current
-  const nextTurns: Turn[] = [
-    ...state.turns,
-    {
-      id: nextId(),
-      role: 'user',
-      text,
-      attachments: attachments && attachments.length > 0 ? [...attachments] : undefined,
-      tools: [],
-      citations: [],
-      streaming: false,
-    },
-    {
-      id: assistantId,
-      role: 'assistant',
-      text: '',
-      tools: [],
-      citations: [],
-      streaming: true,
-      model: activeModel ? `${activeModel.provider}/${activeModel.model}` : undefined,
-    },
-  ]
+export function startTurn(
+  text: string,
+  abort: AbortController,
+  attachments?: string[],
+): string {
+  const userTurn: ChatTurn = {
+    id: nextTurnId('turn-user'),
+    role: 'user',
+    text,
+    citations: [],
+    tools: [],
+    attachments: attachments && attachments.length > 0 ? attachments : undefined,
+  }
 
-  // Update or register session in history
+  const assistantId = nextTurnId('turn-assistant')
+  const assistantTurn: ChatTurn = {
+    id: assistantId,
+    role: 'assistant',
+    text: '',
+    streaming: true,
+    citations: [],
+    tools: [],
+  }
+
+  const nextTurns = [...state.turns, userTurn, assistantTurn]
+  const activeModel = getModelsState().current
+
+  // Auto-title session from first user turn
+  let sessions = state.sessions
   const sessionIndex = state.sessions.findIndex((s) => s.id === state.activeSessionId)
-  let sessions: ChatSession[]
-  const title = (text.trim() || attachments?.[0] || 'New Chat').slice(0, 36)
+  const title = text.slice(0, 30) + (text.length > 30 ? '...' : '')
 
   if (sessionIndex === -1) {
     const newSession: ChatSession = {
       id: state.activeSessionId,
       title,
-      preset: state.preset,
       turns: nextTurns,
+      preset: state.preset,
       selectedModel: activeModel ?? undefined,
-      createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
     sessions = [newSession, ...state.sessions]
@@ -249,18 +215,33 @@ export async function dispatchTurnToModel(text: string, abort: AbortController, 
   const endpoint = modelsState.ollamaEndpoint.replace(/\/+$/, '')
   const provider = current?.provider ?? 'ollama'
   const modelName = current?.model ?? 'qwen3.5:2b'
+  const contextLength = current?.contextLength ?? 8192
+
+  if (modelsState.strictLocalOnly) {
+    const group = modelsState.groups.find((g) => g.id === provider)
+    if (group && !group.isLocal) {
+      finishTurn(`[Error: Strict local mode is enabled — non-local provider "${provider}" is rejected]`)
+      return
+    }
+  }
 
   // If provider is not Ollama or custom, format completion via Ollama /v1 endpoint
   const url = endpoint.endsWith('/v1') ? `${endpoint}/chat/completions` : `${endpoint}/v1/chat/completions`
 
   try {
+    const docsState = getDocumentsState()
+    const systemPrompt = state.systemPromptOverride ?? buildTurnSystemPrompt(state.preset, docsState.documents, text)
+
+    const turnMessages = state.turns
+      .filter((t) => t.text.trim() !== '')
+      .map((t) => ({
+        role: t.role,
+        content: t.text,
+      }))
+
     const messages = [
-      ...state.turns
-        .filter((t) => t.text.trim() !== '')
-        .map((t) => ({
-          role: t.role,
-          content: t.text,
-        })),
+      { role: 'system', content: systemPrompt },
+      ...turnMessages,
     ]
 
     const res = await fetch(url, {
@@ -273,6 +254,9 @@ export async function dispatchTurnToModel(text: string, abort: AbortController, 
         model: modelName,
         messages,
         stream: true,
+        options: {
+          num_ctx: contextLength,
+        },
       }),
       signal: abort.signal,
     })
@@ -328,52 +312,45 @@ export async function dispatchTurnToModel(text: string, abort: AbortController, 
   }
 }
 
+function withLastTurn(
+  updater: (turn: ChatTurn) => ChatTurn,
+): { turns: ChatTurn[]; sessions: ChatSession[] } {
+  if (state.turns.length === 0) return { turns: [], sessions: state.sessions }
+  const lastIndex = state.turns.length - 1
+  const updatedTurn = updater(state.turns[lastIndex]!)
+  const turns = state.turns.slice()
+  turns[lastIndex] = updatedTurn
+
+  const sessions = state.sessions.map((s) =>
+    s.id === state.activeSessionId
+      ? { ...s, turns, updatedAt: new Date().toISOString() }
+      : s,
+  )
+
+  return { turns, sessions }
+}
+
 /**
  * Append streamed text to the open assistant turn.
  * @param delta - the text fragment received.
  */
 export function appendDelta(delta: string): void {
-  const { turns, sessions } = withLastTurn((turn) => ({ ...turn, text: turn.text + delta }))
-  commit({ ...state, turns, sessions })
-}
-
-/** Attach the citations grounding the open turn. */
-export function attachCitations(citations: readonly WbCitation[]): void {
-  const { turns, sessions } = withLastTurn((turn) => ({ ...turn, citations: [...citations] }))
-  commit({ ...state, turns, sessions })
-}
-
-/**
- * Add or update a tool call on the open assistant turn.
- *
- * Keyed by `callId` so the pending card created when a call starts becomes the
- * settled card when it finishes, rather than a second card appearing beside it.
- * @param node - the tool call's current state; merged over any existing entry.
- */
-export function upsertToolNode(node: Partial<ToolNode> & Pick<ToolNode, 'callId'>): void {
-  const { turns, sessions } = withLastTurn((turn) => {
-    const index = turn.tools.findIndex((t) => t.callId === node.callId)
-    const base: ToolNode = index === -1
-      ? { callId: node.callId, name: '', args: {}, status: 'pending' }
-      : turn.tools[index]!
-    const merged = { ...base, ...node }
-    const tools = turn.tools.slice()
-    if (index === -1) tools.push(merged)
-    else tools[index] = merged
-    return { ...turn, tools }
-  })
-  commit({ ...state, turns, sessions })
-}
-
-/**
- * Close the open assistant turn.
- * @param error - a failure message, when the turn ended badly.
- */
-export function finishTurn(error?: string): void {
   const { turns, sessions } = withLastTurn((turn) => ({
     ...turn,
+    text: turn.text + delta,
+  }))
+  commit({ ...state, turns, sessions })
+}
+
+/**
+ * Finish streaming the current turn.
+ * @param failureReason - optional error message to write to the turn.
+ */
+export function finishTurn(failureReason?: string): void {
+  const { turns, sessions } = withLastTurn((turn) => ({
+    ...turn,
+    text: failureReason ? `${turn.text}${turn.text ? '\n' : ''}${failureReason}` : turn.text,
     streaming: false,
-    text: error ? `${turn.text}\n\n${error}`.trim() : turn.text,
   }))
   commit({
     ...state,
@@ -385,48 +362,106 @@ export function finishTurn(error?: string): void {
 }
 
 /**
- * Cancel the in-flight turn.
- *
- * Aborts the controller and closes the turn immediately rather than waiting
- * for the transport to acknowledge: a Stop button that leaves the UI looking
- * busy reads as a Stop that did not work.
- * @returns whether there was anything to cancel.
+ * Abort active generation.
  */
 export function abortTurn(): boolean {
   if (!state.generating) return false
   state.abort?.abort()
-  finishTurn('_Generation stopped._')
+  const { turns, sessions } = withLastTurn((turn) => ({
+    ...turn,
+    text: `${turn.text}${turn.text ? '\n' : ''}[Generation stopped by user]`,
+    streaming: false,
+  }))
+  commit({
+    ...state,
+    generating: false,
+    abort: undefined,
+    turns,
+    sessions,
+  })
   return true
 }
 
-/** Switch the answering preset. */
-export function setPreset(preset: string): void {
-  commit({ ...state, preset })
+export function upsertToolNode(node: Partial<ToolNode> & { callId: string }): void {
+  const { turns, sessions } = withLastTurn((turn) => {
+    const existingIndex = turn.tools.findIndex((t) => t.callId === node.callId)
+    if (existingIndex !== -1) {
+      const updated = { ...turn.tools[existingIndex]!, ...node }
+      const tools = turn.tools.slice()
+      tools[existingIndex] = updated
+      return { ...turn, tools }
+    }
+    const newNode: ToolNode = {
+      callId: node.callId,
+      name: node.name ?? '',
+      args: node.args ?? {},
+      status: node.status ?? 'pending',
+      result: node.result,
+      decision: node.decision,
+      decisionReason: node.decisionReason,
+    }
+    return { ...turn, tools: [...turn.tools, newNode] }
+  })
+  commit({ ...state, turns, sessions })
 }
 
-/**
- * Start a brand new conversation session.
- */
-export function newChat(): void {
+export function appendToolNode(node: ToolNode): void {
+  upsertToolNode(node)
+}
+
+export function updateToolNode(callId: string, patch: Partial<ToolNode>): void {
+  upsertToolNode({ callId, ...patch })
+}
+
+export function attachCitations(citations: readonly WbCitation[]): void {
+  const { turns, sessions } = withLastTurn((turn) => ({
+    ...turn,
+    citations: [...turn.citations, ...citations],
+  }))
+  commit({ ...state, turns, sessions })
+}
+
+export function appendCitation(citation: WbCitation): void {
+  attachCitations([citation])
+}
+
+export function setPreset(preset: string): void {
+  const updatedSessions = state.sessions.map((s) =>
+    s.id === state.activeSessionId ? { ...s, preset, updatedAt: new Date().toISOString() } : s,
+  )
   commit({
     ...state,
-    activeSessionId: nextSessionId(),
-    turns: [],
-    generating: false,
-    abort: undefined,
+    preset,
+    sessions: updatedSessions,
   })
 }
 
-/**
- * Switch to an existing chat session from history.
- * @param sessionId - the ID of the session to switch to.
- */
+export function createSession(preset = 'document-analyst'): string {
+  const id = `session-${Date.now()}`
+  const nonEmptySessions = state.sessions.filter((s) => s.turns.length > 0)
+
+  commit({
+    ...state,
+    activeSessionId: id,
+    sessions: nonEmptySessions,
+    turns: [],
+    preset,
+    generating: false,
+    abort: undefined,
+  })
+  return id
+}
+
+export const newChat = createSession
+
 export function switchSession(sessionId: string): void {
   const target = state.sessions.find((s) => s.id === sessionId)
   if (!target) return
+
   if (target.selectedModel) {
     void selectModel(target.selectedModel)
   }
+
   commit({
     ...state,
     activeSessionId: target.id,
@@ -437,36 +472,28 @@ export function switchSession(sessionId: string): void {
   })
 }
 
-/**
- * Delete a session from chat history.
- * @param sessionId - the ID of the session to remove.
- */
 export function deleteSession(sessionId: string): void {
-  const sessions = state.sessions.filter((s) => s.id !== sessionId)
-  if (state.activeSessionId === sessionId) {
-    commit({
-      ...state,
-      activeSessionId: nextSessionId(),
-      sessions,
-      turns: [],
-      generating: false,
-      abort: undefined,
-    })
-  } else {
-    commit({ ...state, sessions })
-  }
+  const filtered = state.sessions.filter((s) => s.id !== sessionId)
+  commit({
+    ...state,
+    sessions: filtered,
+    activeSessionId: filtered.length > 0 ? filtered[0]!.id : '',
+    turns: filtered.length > 0 ? filtered[0]!.turns : [],
+    preset: filtered.length > 0 ? filtered[0]!.preset : 'document-analyst',
+    generating: false,
+    abort: undefined,
+  })
 }
 
-/** Clear the conversation and session history, for tests or workspace reset. */
-export function resetChat(clearStorage = false): void {
-  counter = 0
-  sessionCounter = 1
-  if (clearStorage && typeof window !== 'undefined' && window.localStorage) {
-    try {
-      window.localStorage.removeItem(STORAGE_KEY)
-    } catch {
-      // ignore
-    }
+export function resetChat(): void {
+  const defaultId = 'session-1'
+  state = {
+    activeSessionId: defaultId,
+    sessions: [],
+    turns: [],
+    generating: false,
+    preset: 'document-analyst',
+    abort: undefined,
   }
-  commit(INITIAL_CHAT)
+  commit(state)
 }

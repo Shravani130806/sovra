@@ -58,6 +58,14 @@
   border-radius: 8px;
 }
 
+.contextBadge {
+  font-size: 11px;
+  background: rgba(234, 179, 8, 0.15);
+  color: #facc15;
+  padding: 2px 6px;
+  border-radius: 8px;
+}
+
 .chevron {
   width: 14px;
   height: 14px;
@@ -73,8 +81,8 @@
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  width: 320px;
-  max-height: 480px;
+  width: 340px;
+  max-height: 520px;
   background-color: #1a1a1a;
   border: 1px solid var(--dsh-theme-border, #333);
   border-radius: 12px;
@@ -221,10 +229,12 @@
   display: flex;
   gap: 4px;
   padding: 0 8px;
+  flex-wrap: wrap;
 }
 
 .effortButton {
   flex: 1;
+  min-width: 48px;
   padding: 4px 8px;
   font-size: 11px;
   background: #222;
@@ -232,6 +242,7 @@
   border-radius: 4px;
   color: #ccc;
   cursor: pointer;
+  text-align: center;
 }
 
 .effortButton:hover {
@@ -242,6 +253,12 @@
   background: #4338ca;
   color: #fff;
   border-color: #6366f1;
+}
+
+.contextButtonActive {
+  background: #854d0e;
+  color: #fef08a;
+  border-color: #eab308;
 }
 
 .errorBanner {

@@ -1,6 +1,16 @@
 import styles from './SecurityConsoleView.module.css'
+import { useModels, useSovereignActivity } from '../live/hooks.ts'
+import { useSovereignPolicy } from '../policy/use-sovereign-policy.ts'
 
 export function SecurityConsoleView() {
+  const { decision, isLocal, reason } = useSovereignPolicy()
+  const { strictLocalOnly } = useModels()
+  const { activityLog } = useSovereignActivity()
+
+  const policyDecisions = activityLog.filter(
+    (a) => a.kind === 'policy_decision' || a.kind === 'policy_override',
+  )
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
@@ -11,9 +21,15 @@ export function SecurityConsoleView() {
       <div className={styles.grid}>
         <div className={styles.card}>
           <h3>Network Status</h3>
-          <div className={`${styles.metric} ${styles.metricSuccess}`}>ISOLATED</div>
+          <div className={`${styles.metric} ${isLocal ? styles.metricSuccess : styles.metric}`}>
+            {strictLocalOnly ? 'AIR-GAPPED' : isLocal ? 'ISOLATED' : 'EXTERNAL ACTIVE'}
+          </div>
           <div className={styles.metricDesc}>
-            No outbound connections permitted. Local model inference enforced.
+            {strictLocalOnly
+              ? 'Strict on-premise execution enforced. External network egress prohibited.'
+              : isLocal
+                ? 'No outbound connections detected. All operations running locally.'
+                : 'Session communicated with external endpoint.'}
           </div>
         </div>
 
@@ -29,7 +45,7 @@ export function SecurityConsoleView() {
           <h3>Policy Engine</h3>
           <div className={`${styles.metric} ${styles.metricSuccess}`}>ACTIVE</div>
           <div className={styles.metricDesc}>
-            Intercepting and evaluating all capability requests.
+            Last Verdict: <strong>{decision}</strong> ({reason})
           </div>
         </div>
       </div>
@@ -37,36 +53,35 @@ export function SecurityConsoleView() {
       <div className={styles.card}>
         <h3>Recent Policy Decisions</h3>
         <div className={styles.policyList}>
-          <div className={styles.policyItem}>
-            <div className={styles.policyHeader}>
-              <span className={`${styles.badge} ${styles.badgeAllow}`}>ALLOW</span>
-              <span className={styles.policyTitle}>Local model inference</span>
+          {policyDecisions.length === 0 ? (
+            <div style={{ padding: '1rem', color: 'var(--wb-text-secondary, #a1a1aa)', fontSize: '0.9rem' }}>
+              No policy intercepts recorded yet in this session.
             </div>
-            <div className={styles.metricDesc}>Authorized standard LLM generation using local hardware.</div>
-          </div>
-
-          <div className={styles.policyItem}>
-            <div className={styles.policyHeader}>
-              <span className={`${styles.badge} ${styles.badgeDeny}`}>DENY</span>
-              <span className={styles.policyTitle}>External request containing CONFIDENTIAL data</span>
-            </div>
-            <div className={styles.metricDesc}>Blocked outgoing Web Search tool call due to PII/Confidential patterns in prompt.</div>
-          </div>
-
-          <div className={styles.policyItem}>
-            <div className={styles.policyHeader}>
-              <span className={`${styles.badge} ${styles.badgeApproval}`}>REQUIRE APPROVAL</span>
-              <span className={styles.policyTitle}>Internal ERP System Access</span>
-            </div>
-            <div className={styles.metricDesc}>User clearance is sufficient, but action requires explicit 2FA confirmation.</div>
-          </div>
+          ) : (
+            policyDecisions.map((act) => {
+              const isBlocked = act.blocked || act.summary.toLowerCase().includes('deny') || act.summary.toLowerCase().includes('blocked')
+              return (
+                <div key={act.id} className={styles.policyItem}>
+                  <div className={styles.policyHeader}>
+                    <span className={`${styles.badge} ${isBlocked ? styles.badgeDeny : styles.badgeAllow}`}>
+                      {isBlocked ? 'DENY' : 'ALLOW'}
+                    </span>
+                    <span className={styles.policyTitle}>{act.summary}</span>
+                  </div>
+                  <div className={styles.metricDesc}>
+                    Timestamp: {new Date(act.at).toLocaleTimeString()} • Event: {act.kind}
+                  </div>
+                </div>
+              )
+            })
+          )}
         </div>
       </div>
 
       <div className={styles.visualization}>
         <div className={styles.visIcon}>🛡️</div>
         <div className={styles.visTitle}>Your data remains inside the organization's security boundary.</div>
-        <div className={styles.visDesc}>MRPL Sovereign AI is running entirely on local infrastructure.</div>
+        <div className={styles.visDesc}>SOVRA Sovereign AI is running entirely on local infrastructure.</div>
       </div>
     </div>
   )
