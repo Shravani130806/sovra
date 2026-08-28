@@ -1,8 +1,8 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { asWbDocumentId } from '@mrpl/dsh-workbench-types'
 import {
-  abortTurn, appendDelta, attachCitations, finishTurn, getChatState,
-  resetChat, setPreset, startTurn, upsertToolNode,
+  abortTurn, appendDelta, attachCitations, deleteSession, finishTurn, getChatState,
+  newChat, resetChat, setPreset, startTurn, switchSession, upsertToolNode,
 } from '../src/client/live/chat-store.ts'
 import {
   classificationRank, completeUpload, failUpload, getDocumentsState,
@@ -111,6 +111,53 @@ describe('chat store', () => {
     setPreset('engineering-vision')
     expect(getChatState().preset).toBe('engineering-vision')
     expect(getChatState().turns).toHaveLength(2)
+  })
+
+  describe('sessions and chat history', () => {
+    it('records active chat as a session in history', () => {
+      startTurn('Inspect boiler temperature', new AbortController())
+      const { sessions } = getChatState()
+      expect(sessions).toHaveLength(1)
+      expect(sessions[0]!.title).toBe('Inspect boiler temperature')
+      expect(sessions[0]!.turns).toHaveLength(2)
+    })
+
+    it('starting a new chat creates a fresh session and retains history', () => {
+      startTurn('First conversation', new AbortController())
+      finishTurn()
+      const firstSessionId = getChatState().activeSessionId
+
+      newChat()
+      expect(getChatState().turns).toHaveLength(0)
+      expect(getChatState().activeSessionId).not.toBe(firstSessionId)
+      expect(getChatState().sessions).toHaveLength(1)
+
+      startTurn('Second conversation', new AbortController())
+      expect(getChatState().sessions).toHaveLength(2)
+    })
+
+    it('switches between past chat sessions', () => {
+      startTurn('First conversation', new AbortController())
+      finishTurn()
+      const firstSessionId = getChatState().activeSessionId
+
+      newChat()
+      startTurn('Second conversation', new AbortController())
+      finishTurn()
+
+      switchSession(firstSessionId)
+      expect(getChatState().activeSessionId).toBe(firstSessionId)
+      expect(getChatState().turns[0]!.text).toBe('First conversation')
+    })
+
+    it('can delete a session from history', () => {
+      startTurn('Session to delete', new AbortController())
+      const sessionId = getChatState().activeSessionId
+
+      deleteSession(sessionId)
+      expect(getChatState().sessions).toHaveLength(0)
+      expect(getChatState().turns).toHaveLength(0)
+    })
   })
 })
 

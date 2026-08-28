@@ -85,6 +85,27 @@
   padding: 0.75rem 0.75rem 0.25rem;
 }
 
+.sessionItem {
+  padding: 0.45rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  color: var(--wb-text-secondary);
+  transition: all 0.15s ease;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sessionItem:hover {
+  background: var(--wb-bg-surface-hover);
+  color: var(--wb-text-primary);
+}
+.sessionItemActive {
+  background: var(--wb-bg-surface-hover);
+  color: var(--wb-text-primary);
+  font-weight: 500;
+}
+
 .sidebarFooter {
   padding: 1rem;
   border-top: 1px solid var(--wb-border-subtle);

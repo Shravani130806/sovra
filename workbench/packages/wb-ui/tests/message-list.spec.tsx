@@ -26,6 +26,14 @@ describe('MessageList', () => {
     expect(screen.getByText(/fed from V-100/)).toBeDefined()
   })
 
+  it('renders user attachments as badges', () => {
+    startTurn('Please review', new AbortController(), ['report.pdf', 'diagram.png'])
+    render(<MessageList />)
+    expect(screen.getByText('📎 report.pdf')).toBeDefined()
+    expect(screen.getByText('📎 diagram.png')).toBeDefined()
+    expect(screen.getByText(/Please review/)).toBeDefined()
+  })
+
   it('shows a working indicator only while a turn is empty and streaming', () => {
     startTurn('q', new AbortController())
     const view = render(<MessageList />)

@@ -1,10 +1,13 @@
 import type { SidebarOwnerProps } from '@deepseek-ai/dsh-client-ui-layout/client'
 import styles from './SidebarRoot.module.css'
 import { SecurityIndicator } from '../components/SecurityIndicator.tsx'
-import { useNavigation, type PageRoute } from '../mock/index.ts'
+import { useChat, useNavigation } from '../live/hooks.ts'
+import { navigate, type Route } from '../live/navigation-store.ts'
+import { newChat, switchSession } from '../live/chat-store.ts'
 
 export function SidebarRoot(props: SidebarOwnerProps) {
-  const { page, navigate } = useNavigation()
+  const { route } = useNavigation()
+  const { sessions, activeSessionId } = useChat()
 
   if (props.collapsed) {
     return (
@@ -14,12 +17,30 @@ export function SidebarRoot(props: SidebarOwnerProps) {
     )
   }
 
-  const handleNav = (target: PageRoute) => () => navigate(target)
+  const handleNav = (target: Route) => () => navigate(target)
 
-  const NavItem = ({ label, target }: { label: string, target: PageRoute }) => (
-    <div 
-      className={`${styles.navItem} ${page === target ? styles.navItemActive : ''}`}
+  const handleNewChat = () => {
+    newChat()
+    navigate('chat')
+  }
+
+  const handleSelectSession = (sessionId: string) => {
+    switchSession(sessionId)
+    navigate('chat')
+  }
+
+  const NavItem = ({ label, target }: { label: string; target: Route }) => (
+    <div
+      className={`${styles.navItem} ${route === target ? styles.navItemActive : ''}`}
       onClick={handleNav(target)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          handleNav(target)()
+        }
+      }}
     >
       {label}
     </div>
@@ -30,9 +51,9 @@ export function SidebarRoot(props: SidebarOwnerProps) {
       <div className={styles.header}>
         <div className={styles.brandFull}>Sovereign AI Workbench</div>
       </div>
-      
+
       <div className={styles.navigation}>
-        <button className={styles.newChatBtn} onClick={handleNav('chat')}>
+        <button type="button" className={styles.newChatBtn} onClick={handleNewChat}>
           <span>+</span> New Chat
         </button>
 
@@ -42,16 +63,32 @@ export function SidebarRoot(props: SidebarOwnerProps) {
         <NavItem label="Engineering Vision" target="vision" />
         <NavItem label="Activity" target="activity" />
         <NavItem label="Security" target="security" />
-        
-        <div className={styles.sectionTitle}>Today</div>
-        <div className={styles.navItem}>Pump P-101 inspection</div>
-        <div className={styles.navItem}>SOP compliance review</div>
 
-        <div className={styles.sectionTitle}>Yesterday</div>
-        <div className={styles.navItem}>Compressor maintenance</div>
-        
-        <div className={styles.sectionTitle}>Previous 7 Days</div>
-        <div className={styles.navItem}>Monthly refinery safety</div>
+        {sessions.length > 0 ? (
+          <>
+            <div className={styles.sectionTitle}>Recent Chats</div>
+            {sessions.map((session) => (
+              <div
+                key={session.id}
+                className={`${styles.sessionItem} ${
+                  route === 'chat' && activeSessionId === session.id ? styles.sessionItemActive : ''
+                }`}
+                onClick={() => handleSelectSession(session.id)}
+                title={session.title}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    handleSelectSession(session.id)
+                  }
+                }}
+              >
+                {session.title}
+              </div>
+            ))}
+          </>
+        ) : null}
       </div>
 
       <div className={styles.footer}>
