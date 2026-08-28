@@ -1,93 +1,126 @@
+import { useRef, useState } from 'react'
 import styles from './EngineeringVisionView.module.css'
+import { useVision } from '../live/hooks.ts'
+import { boxToPixels, setImage, setQuestion, startAnalysis } from '../live/vision-store.ts'
 
-export function EngineeringVisionView() {
+/** Rendered size the overlay is computed against. */
+const VIEW = { width: 720, height: 480 }
+
+export interface EngineeringVisionViewProps {
+  /** Run `wb_vision_analyze` against the loaded image; supplied by the container. */
+  onAnalyze?: (question: string) => void
+}
+
+export function EngineeringVisionView({ onAnalyze }: EngineeringVisionViewProps) {
+  const { imageUrl, imageName, question, findings, analyzing, noFindingReason, error } = useVision()
+  const [hovered, setHovered] = useState<string | undefined>(undefined)
+  const input = useRef<HTMLInputElement>(null)
+
+  function accept(files: FileList | null) {
+    const file = files?.[0]
+    if (!file) return
+    setImage(URL.createObjectURL(file), file.name)
+  }
+
+  function analyze() {
+    if (!imageUrl || question.trim() === '') return
+    startAnalysis()
+    onAnalyze?.(question.trim())
+  }
+
   return (
     <div className={styles.container}>
-      <div className={styles.viewerPane}>
-        <div className={styles.viewerHeader}>
-          <h1 className={styles.title}>Plant_Unit_3_PID.dwg</h1>
-        </div>
-        
-        <div className={styles.drawingArea}>
-          <div className={styles.mockDrawing}>
-            {/* SVG mockup of a P&ID drawing */}
-            <svg width="100%" height="100%" viewBox="0 0 800 600" xmlns="http://www.w3.org/2000/svg">
-              <rect width="800" height="600" fill="#ffffff" />
-              
-              {/* Grid lines */}
-              <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#f0f0f0" strokeWidth="1"/>
-              </pattern>
-              <rect width="800" height="600" fill="url(#grid)" />
-              
-              {/* Pipe */}
-              <line x1="200" y1="300" x2="600" y2="300" stroke="#000" strokeWidth="3" />
-              
-              {/* Pump P-101 */}
-              <circle cx="200" cy="300" r="40" fill="none" stroke="#000" strokeWidth="3" />
-              <text x="180" y="305" fontFamily="sans-serif" fontSize="14">P-101</text>
-              
-              {/* Valve V-204 */}
-              <polygon points="380,280 380,320 420,280 420,320" fill="none" stroke="#000" strokeWidth="3" />
-              <text x="385" y="270" fontFamily="sans-serif" fontSize="14">V-204</text>
-              
-              {/* Tank T-301 */}
-              <rect x="550" y="200" width="100" height="200" rx="20" fill="none" stroke="#000" strokeWidth="3" />
-              <text x="575" y="305" fontFamily="sans-serif" fontSize="14">T-301</text>
-            </svg>
-
-            {/* Bounding boxes overlay */}
-            <div className={styles.boundingBox} style={{ top: '40%', left: '20%', width: '100px', height: '100px' }}>
-              <div className={styles.boxLabel}>P-101</div>
-            </div>
-            <div className={styles.boundingBox} style={{ top: '43%', left: '46%', width: '60px', height: '60px', borderColor: 'var(--wb-color-blocked)' }}>
-              <div className={styles.boxLabel} style={{ backgroundColor: 'var(--wb-color-blocked)' }}>V-204</div>
-            </div>
-            <div className={styles.boundingBox} style={{ top: '30%', left: '68%', width: '120px', height: '240px' }}>
-              <div className={styles.boxLabel}>T-301</div>
-            </div>
-          </div>
-        </div>
+      <div className={styles.toolbar}>
+        <button type="button" className={styles.uploadButton} onClick={() => input.current?.click()}>
+          {imageUrl ? 'Replace drawing' : 'Load drawing'}
+        </button>
+        <input
+          ref={input}
+          type="file"
+          accept=".png,.jpg,.jpeg,.webp,.gif,.pdf"
+          aria-label="Load drawing"
+          className={styles.hiddenInput}
+          onChange={(e) => accept(e.target.files)}
+        />
+        {imageName ? <span className={styles.filename}>{imageName}</span> : null}
       </div>
 
-      <div className={styles.findingsPane}>
-        <div className={styles.findingsHeader}>
-          <h3>AI Inspection Findings</h3>
-          <p>Identified 3 equipment items</p>
-        </div>
-
-        <div className={styles.findingsList}>
-          <div className={styles.findingCard}>
-            <div className={styles.findingHeader}>
-              <h4>P-101 (Pump)</h4>
-              <span className={styles.confidenceBadge}>High 98%</span>
-            </div>
-            <div className={styles.findingBody}>
-              <p>Main centrifugal pump. Found connected to main supply line leading to V-204.</p>
-            </div>
-          </div>
-
-          <div className={styles.findingCard} style={{ borderColor: 'var(--wb-color-blocked)' }}>
-            <div className={styles.findingHeader}>
-              <h4>V-204 (Valve)</h4>
-              <span className={`${styles.confidenceBadge} ${styles.confidenceMedium}`}>Med 74%</span>
-            </div>
-            <div className={styles.findingBody}>
-              <p>Primary shutoff valve. Detected state appears anomalous (possibly partially open).</p>
-            </div>
-          </div>
-
-          <div className={styles.findingCard}>
-            <div className={styles.findingHeader}>
-              <h4>T-301 (Tank)</h4>
-              <span className={styles.confidenceBadge}>High 95%</span>
-            </div>
-            <div className={styles.findingBody}>
-              <p>Secondary containment vessel. Verified standard capacity markers.</p>
-            </div>
-          </div>
-        </div>
+      <div className={styles.queryBar}>
+        <input
+          className={styles.query}
+          aria-label="Question"
+          placeholder="Inspect pump P-101 and check valve V-204"
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') analyze() }}
+        />
+        <button
+          type="button"
+          className={styles.analyzeButton}
+          disabled={!imageUrl || question.trim() === '' || analyzing}
+          onClick={analyze}
+        >
+          {analyzing ? 'Analyzing…' : 'Analyze'}
+        </button>
       </div>
+
+      {!imageUrl ? (
+        <div
+          className={styles.dropzone}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => { e.preventDefault(); accept(e.dataTransfer.files) }}
+        >
+          Drop a P&amp;ID, blueprint or scanned schematic here
+        </div>
+      ) : (
+        <div className={styles.canvas} style={{ width: VIEW.width, height: VIEW.height }}>
+          <img src={imageUrl} alt={imageName ?? 'drawing'} className={styles.image} />
+          {/* Boxes are fractions of the image, so the overlay is computed
+              against the rendered size rather than baked at any one scale. */}
+          <svg
+            className={styles.overlay}
+            viewBox={`0 0 ${VIEW.width} ${VIEW.height}`}
+            aria-label="Findings overlay"
+          >
+            {findings.map((finding) => {
+              const rect = boxToPixels(finding.box, VIEW.width, VIEW.height)
+              return (
+                <rect
+                  key={finding.id}
+                  x={rect.x} y={rect.y} width={rect.width} height={rect.height}
+                  className={`${styles.box} ${hovered === finding.id ? styles.boxActive : ''}`}
+                  onMouseEnter={() => setHovered(finding.id)}
+                  onMouseLeave={() => setHovered(undefined)}
+                />
+              )
+            })}
+          </svg>
+        </div>
+      )}
+
+      {error ? <p className={styles.error} role="alert">{error}</p> : null}
+
+      {noFindingReason ? (
+        // A refusal is a successful, honest answer — not an error state.
+        <p className={styles.noFinding}>{noFindingReason}</p>
+      ) : null}
+
+      {findings.length > 0 ? (
+        <ul className={styles.findings}>
+          {findings.map((finding) => (
+            <li
+              key={finding.id}
+              className={`${styles.finding} ${hovered === finding.id ? styles.findingActive : ''}`}
+              onMouseEnter={() => setHovered(finding.id)}
+              onMouseLeave={() => setHovered(undefined)}
+            >
+              <span className={styles.findingSummary}>{finding.summary}</span>
+              {finding.tag ? <span className={styles.tag}>{finding.tag}</span> : null}
+              <span className={styles.confidence}>{Math.round(finding.confidence * 100)}%</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   )
 }

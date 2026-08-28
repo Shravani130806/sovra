@@ -17,9 +17,18 @@ import type { WbAuditEntry, WbCitation, WbDecisionKind } from '@mrpl/dsh-workben
 
 /** One row of the activity timeline. */
 export interface ActivityEntry {
+  id: string
   at: string
   summary: string
   kind: WbAuditEntry['kind']
+  /**
+   * Whether this row records something policy refused.
+   *
+   * Derived once here from the recorded decision rather than sniffed from the
+   * summary string in the view, so the timeline and the audit log cannot
+   * disagree about what was blocked.
+   */
+  blocked: boolean
 }
 
 /** One artifact the session has produced. */
@@ -99,8 +108,15 @@ const ARTIFACT_KINDS: Readonly<Record<string, ArtifactEntry['kind']>> = {
  * @param entry - the recorded audit entry.
  */
 export function publishAuditEntry(entry: WbAuditEntry): void {
+  const decision = (entry.payload as { decision?: unknown }).decision
   const activity: ActivityEntry[] = [
-    { at: entry.at, summary: entry.summary, kind: entry.kind },
+    {
+      id: entry.id,
+      at: entry.at,
+      summary: entry.summary,
+      kind: entry.kind,
+      blocked: entry.kind === 'policy_decision' && decision === 'DENY',
+    },
     ...state.activity,
   ].slice(0, ACTIVITY_WINDOW)
 

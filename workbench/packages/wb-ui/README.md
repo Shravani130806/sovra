@@ -75,6 +75,10 @@ the same seam shape the security indicator already used.
 | Sources | `wb/rag/retrieved` | `publishRetrievalCitations` |
 | Artifacts | `tool_result` entries for the four `wb_generate_*` tools | `publishAuditEntry` |
 | Composer posture | `wb/policy/decision` | `publishChatDecision` |
+| Conversation | the transport's session stream | `chat-store.ts` (`startTurn`, `appendDelta`, `upsertToolNode`, `finishTurn`) |
+| Corpus & uploads | `wb-ingestion` | `documents-store.ts` |
+| Vision findings | `wb_vision_analyze` | `vision-store.ts` |
+| Route & viewer target | the sidebar and citation clicks | `navigation-store.ts` |
 
 Activity and artifacts derive from the same append-only log the audit console
 reads, so there is no second source that could disagree with it. The sources
@@ -84,8 +88,9 @@ never used it.
 
 ## Known Limitations and Deferred Work
 
-- No component-render tests. Coverage is on `policy-store` and `badgeFor` —
-  the logic where a defect misstates the security posture. Rendering assertions
-  need a DOM environment this package does not yet configure.
+- Chat message history is still fixture-backed. Turns render from
+  `chat-store.ts`, but nothing yet feeds it from the harness session stream
+  (`dsh-sdk`) — that is a transport integration, not a workbench service, and
+  is the last fixture in the package.
 - The dev harness under `src/dev/` mocks `@mrpl/dsh-workbench-types` through a
   Vite alias, so it exercises the components but not the real frozen types.

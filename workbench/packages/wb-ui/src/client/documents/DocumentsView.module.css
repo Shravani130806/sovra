@@ -111,3 +111,28 @@
   background: var(--wb-color-sovereign-bg);
   color: var(--wb-color-sovereign);
 }
+
+.uploadBar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.pickerLabel { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--wb-text-muted, #93a3ae); }
+.picker, .uploadButton {
+  font: inherit; font-size: 13px; border-radius: 6px; padding: 7px 10px;
+  border: 1px solid var(--wb-border, #2c3238); background: var(--wb-bg, #14171a); color: inherit;
+}
+.uploadButton { background: var(--wb-accent, #4f8ff7); color: #fff; border: none; font-weight: 600; cursor: pointer; }
+.hiddenInput { display: none; }
+.dropzone {
+  border: 1.5px dashed var(--wb-border, #2c3238); border-radius: 8px;
+  padding: 22px; text-align: center; color: var(--wb-text-muted, #93a3ae); font-size: 13px;
+}
+.dropzoneActive { border-color: var(--wb-accent, #4f8ff7); background: rgba(79, 143, 247, 0.06); }
+.heading { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--wb-text-muted, #93a3ae); margin: 20px 0 8px; }
+.uploadList { list-style: none; padding: 0; margin: 0; }
+.uploadRow { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--wb-border, #2c3238); font-size: 13px; flex-wrap: wrap; }
+.uploadName { font-weight: 500; }
+.uploadStatus { color: var(--wb-text-muted, #93a3ae); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.raised { color: #c084fc; font-size: 12px; }
+.uploadError { color: #f28c86; font-size: 12px; }
+.empty { color: var(--wb-text-muted, #93a3ae); font-size: 13px; }
+.row { cursor: pointer; }
+.row:hover { background: rgba(127, 143, 155, 0.08); }
+.band { font-size: 11px; font-weight: 600; letter-spacing: .04em; }

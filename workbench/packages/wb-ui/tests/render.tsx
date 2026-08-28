@@ -14,7 +14,7 @@ import type { ReactElement } from 'react'
 
 afterEach(() => cleanup())
 
-export { screen, fireEvent, waitFor, within } from '@testing-library/react'
+export { act, screen, fireEvent, waitFor, within } from '@testing-library/react'
 
 /** Render one element into a fresh container. */
 export function render(ui: ReactElement) {
