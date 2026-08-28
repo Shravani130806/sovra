@@ -1,10 +1,3 @@
-import { defineConfig } from 'tsdown'
-export default defineConfig({
-  entry: {
-    index: 'src/index.ts',
-    client: 'src/client/index.ts'
-  },
-  format: 'esm',
-  outDir: 'lib',
-  clean: true,
-})
+import { clientBundle } from '../../../packages/client/tsdown.client.ts'
+
+export default clientBundle('@mrpl/dsh-workbench-admin-console', ['lib/types/index.js'])

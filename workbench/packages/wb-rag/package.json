@@ -5,19 +5,19 @@
   "type": "module",
   "description": "Permission-aware retrieval: authorize chunks before reranking, never letting the LLM see unauthorized text.",
   "main": "lib/index.js",
-  "types": "lib/types/index.d.ts",
+  "types": "lib/index.d.ts",
   "exports": {
     ".": {
-      "types": "./lib/types/index.d.ts",
+      "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     }
   },
   "files": [
     "lib/index.js",
-    "lib/types/**/*.d.ts"
+    "lib/**/*.d.ts"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && tsdown",
+    "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "oxlint src/",
     "test": "vitest run",
