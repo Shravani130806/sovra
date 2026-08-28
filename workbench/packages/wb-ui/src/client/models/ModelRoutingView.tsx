@@ -59,8 +59,8 @@ export function ModelRoutingView() {
     const selection: ModelSelection = {
       provider,
       model,
-      reasoningEffort: reasoningEffort ?? existing?.reasoningEffort,
-      contextLength: contextLength ?? existing?.contextLength ?? DEFAULT_CONTEXT_LENGTH,
+      ...(reasoningEffort ? { reasoningEffort } : {}),
+      ...(contextLength !== undefined ? { contextLength } : existing?.contextLength !== undefined ? { contextLength: existing.contextLength } : {}),
     }
     setCapabilityModel(role, selection)
   }
@@ -143,7 +143,6 @@ export function ModelRoutingView() {
           const selected = capabilityRouting[roleMeta.id] ?? {
             provider: 'ollama',
             model: roleMeta.recommendedTag,
-            contextLength: DEFAULT_CONTEXT_LENGTH,
           }
 
           const activeModelObj = allModels.find(
