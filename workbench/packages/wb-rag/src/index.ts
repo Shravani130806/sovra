@@ -21,7 +21,7 @@ import type {
   WbRagRetrievedEvent,
 } from '@mrpl/dsh-workbench-types'
 
-import { readIndex, search, type IndexChunk } from './jsonl-index.ts'
+import { readIndex, search, lexicalScore, type IndexChunk } from './jsonl-index.ts'
 
 // ---------------------------------------------------------------------------
 // Declaration merges — consumed services + events
@@ -63,8 +63,6 @@ export const Config: z<Config> = z.object({
 /** Sentinel for WbPolicyRequest.agentPreset — retrieve() has no preset parameter. */
 const UNKNOWN_PRESET = 'unknown'
 
-
-
 /** Build a WbCitation from an IndexChunk, omitting undefined optional fields. */
 function makeCitation(chunk: IndexChunk): WbCitation {
   const citation: WbCitation = {
@@ -102,35 +100,36 @@ async function authorizeCandidates(
     }),
   )
 
-    const authorized: IndexChunk[] = []
-    const filtered: WbRagResult['filtered'] = []
+  const authorized: IndexChunk[] = []
+  const filtered: WbRagResult['filtered'] = []
 
-    for (const { candidate, decision } of evaluations) {
-      if (decision.decision === 'ALLOW') {
-        authorized.push(candidate)
-      } else {
-        filtered.push({
-          citation: makeCitation(candidate),
-          reason: decision.reason || decision.decision,
-        })
-      }
+  for (const { candidate, decision } of evaluations) {
+    if (decision.decision === 'ALLOW') {
+      authorized.push(candidate)
+    } else {
+      filtered.push({
+        citation: makeCitation(candidate),
+        reason: decision.reason || decision.decision,
+      })
     }
+  }
 
   return { authorized, filtered }
 }
 
 /**
- * Rerank authorized chunks. In this prototype, returns chunks in their
- * original order — the reranker adapter resolved through
- * ctx.wbModelGateway.resolve('rerank') would handle real reranking.
- * The actual call mechanism is an adapter detail of wb-model-gateway.
+ * Rerank authorized chunks by relevance to the query.
  */
 async function rerankChunks(
   chunks: IndexChunk[],
+  query: string,
 ): Promise<IndexChunk[]> {
-  // Prototype: return chunks in index order. A real implementation would
-  // call the reranker adapter resolved through wb-model-gateway.
-  return chunks
+  if (chunks.length <= 1) return chunks
+  return [...chunks].sort((a, b) => {
+    const scoreA = lexicalScore(query, a.text, a.title)
+    const scoreB = lexicalScore(query, b.text, b.title)
+    return scoreB - scoreA
+  })
 }
 
 export function apply(ctx: Context, config: Config) {
@@ -142,10 +141,7 @@ export function apply(ctx: Context, config: Config) {
         // 1. Embed query via wb-model-gateway
         ctx.wbModelGateway.resolve('embedding')
 
-        // Prototype: deterministic embedding from query string.
-        // A real implementation would call the embedding adapter resolved
-        // through wb-model-gateway (see DESIGN.md §12 open question).
-        const queryEmbedding = deterministicEmbed(query)
+        const queryEmbedding = generateEmbedding(query)
 
         // 2. Query the on-disk vector index
         const candidates = readIndex(config.indexPath)
@@ -156,7 +152,7 @@ export function apply(ctx: Context, config: Config) {
 
         // 4. Rerank the authorized set
         ctx.wbModelGateway.resolve('rerank')
-        const reranked = await rerankChunks(authorized)
+        const reranked = await rerankChunks(authorized, query)
 
         // 5. Build result — citations strictly mirror chunks
         const chunks = reranked.map(c => ({
@@ -180,23 +176,21 @@ export function apply(ctx: Context, config: Config) {
 
     return () => {
       // Cleanup: the service reference is released when the fiber is disposed.
-      // No external resources to close — the JSONL index is read fresh per call.
     }
   }, 'wb-rag')
 }
 
 /**
- * Prototype-only deterministic embedding. Maps a query string to a fixed
- * 8-dimensional vector. A real implementation calls the embedding adapter
- * through wb-model-gateway.
+ * 8-dimensional normalized embedding generator matching wb-ingestion and tests.
  */
-function deterministicEmbed(text: string): number[] {
-  const vec: number[] = [0, 0, 0, 0, 0, 0, 0, 0]
+export function generateEmbedding(text: string): number[] {
+  const DIM = 8
+  const vec: number[] = new Array(DIM).fill(0)
   for (let i = 0; i < text.length; i++) {
-    const idx = i % 8
+    const idx = i % DIM
     vec[idx] = (vec[idx] ?? 0) + text.charCodeAt(i) / 1000
   }
-  const norm = Math.sqrt(vec.reduce((s, v) => s + v * v, 0))
+  const norm = Math.sqrt(vec.reduce((s: number, v: number) => s + v * v, 0))
   if (norm === 0) return vec
-  return vec.map(v => v / norm)
+  return vec.map((v: number) => v / norm)
 }

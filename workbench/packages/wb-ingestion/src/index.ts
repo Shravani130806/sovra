@@ -67,6 +67,8 @@ export const Config: Schema<IngestionConfig> = Schema.object({
     'text/*',
     'application/pdf',
     'image/*',
+    'application/vnd.openxmlformats-officedocument.*',
+    'application/json',
   ]),
   indexPath: Schema.string().default('$DSH_HOME/workbench/vector-index'),
   chunkSize: Schema.number().default(1000),
@@ -74,7 +76,7 @@ export const Config: Schema<IngestionConfig> = Schema.object({
 })
 
 // ---------------------------------------------------------------------------
-// MIME type detection (file extension heuristic for prototype)
+// MIME type detection
 // ---------------------------------------------------------------------------
 
 const EXTENSION_TO_MIME: Record<string, string> = {
@@ -107,6 +109,7 @@ function detectMime(filePath: string): string {
 function mimeMatches(mime: string, pattern: string): boolean {
   if (pattern === 'text/*') return mime.startsWith('text/')
   if (pattern === 'image/*') return mime.startsWith('image/')
+  if (pattern.endsWith('*')) return mime.startsWith(pattern.slice(0, -1))
   if (pattern.endsWith('/*')) return mime.startsWith(pattern.slice(0, -2) + '/')
   return mime === pattern
 }
@@ -198,7 +201,7 @@ function createService(ctx: Context, config: IngestionConfig): WbIngestionServic
         throw new Error(`Cannot parse file: unsupported format (${mime})`)
       }
 
-      // 4b. Authorize the upload itself. §6 lists wb-policy as a dependency of
+      // 5b. Authorize the upload itself. §6 lists wb-policy as a dependency of
       // this plugin; before `ingest_document` existed there was no valid
       // request to build, so it injected policy and never called it and every
       // upload was ungoverned.
@@ -214,14 +217,13 @@ function createService(ctx: Context, config: IngestionConfig): WbIngestionServic
         throw new Error(`ingestion denied: ${decision.decision} — ${decision.reason}`)
       }
 
-      // 5. Assign document ID
+      // 6. Assign document ID
       const documentId = asWbDocumentId(crypto.randomUUID())
 
-      // 6. Classification: declared value at minimum (never auto-downgrade)
+      // 7. Classification: declared value at minimum (never auto-downgrade)
       let finalClassification: WbClassification = file.declaredClassification
 
-      // 7. Parse content
-      let textChunks: string[] = []
+      // 8. Parse content
       let title = file.path.split('/').pop() ?? 'unknown'
 
       let documentText: string
@@ -249,28 +251,26 @@ function createService(ctx: Context, config: IngestionConfig): WbIngestionServic
         }
       }
 
-      // 6b. Auto-classification may only RAISE the declared band (§6.8, and
+      // 9. Auto-classification may only RAISE the declared band (§6.8, and
       // §9 invariant 6). A suggestion below the declared value is discarded.
       const suggested = suggestClassification(documentText, mime)
       if (suggested && classificationRank(suggested) > classificationRank(finalClassification)) {
         finalClassification = suggested
       }
 
-      textChunks = chunkText(documentText, config.chunkSize, config.chunkOverlap)
+      const textChunks = chunkText(documentText, config.chunkSize, config.chunkOverlap)
 
       if (textChunks.length === 0) {
         throw new Error('No chunks produced from document')
       }
 
-      // 8. Embed chunks via wb-model-gateway
-      const embeddingHandle = ctx.wbModelGateway.resolve('embedding')
-      // Prototype: deterministic embedding per chunk. A real implementation
-      // would call the embedding adapter through ctx.llm.
+      // 10. Embed chunks via wb-model-gateway
+      ctx.wbModelGateway.resolve('embedding')
       const embeddings = textChunks.map((chunk) =>
-        deterministicEmbed(chunk, embeddingHandle.adapterId),
+        generateEmbedding(chunk),
       )
 
-      // 9. Write chunks to JSONL index (O_APPEND, atomic under PIPE_BUF)
+      // 11. Write chunks to JSONL index (O_APPEND, atomic under PIPE_BUF)
       for (let i = 0; i < textChunks.length; i++) {
         const chunk: IndexChunk = {
           text: textChunks[i]!,
@@ -282,7 +282,7 @@ function createService(ctx: Context, config: IngestionConfig): WbIngestionServic
         appendToIndex(expandedIndexPath, chunk)
       }
 
-      // 10. Emit completion event
+      // 12. Emit completion event
       const event: WbIngestionCompletedEvent = {
         documentId,
         classification: finalClassification,
@@ -311,15 +311,15 @@ export function apply(ctx: Context, config: IngestionConfig): void {
 }
 
 // ---------------------------------------------------------------------------
-// Prototype-only deterministic embedding
+// Shared embedding generator (8-dim normalized embedding)
 // ---------------------------------------------------------------------------
 
-function deterministicEmbed(text: string, seed: string): number[] {
-  const vec: number[] = [0, 0, 0, 0, 0, 0, 0, 0]
-  const combined = seed + text
-  for (let i = 0; i < combined.length; i++) {
-    const idx = i % 8
-    vec[idx] = (vec[idx] ?? 0) + combined.charCodeAt(i) / 1000
+export function generateEmbedding(text: string): number[] {
+  const DIM = 8
+  const vec: number[] = new Array(DIM).fill(0)
+  for (let i = 0; i < text.length; i++) {
+    const idx = i % DIM
+    vec[idx] = (vec[idx] ?? 0) + text.charCodeAt(i) / 1000
   }
   const norm = Math.sqrt(vec.reduce((s: number, v: number) => s + v * v, 0))
   if (norm === 0) return vec

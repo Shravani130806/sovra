@@ -26,6 +26,9 @@
     }
   },
   "scripts": {
+    "dev": "vite",
+    "build": "tsc -b",
+    "build:app": "vite build",
     "bundle": "tsdown",
     "watch": "tsdown --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -53,7 +56,11 @@
     "@types/react-dom": "~18.3.0",
     "jsdom": "29.1.1",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "@types/react-dom": "~18.3.0",
+    "@vitejs/plugin-react": "^4.0.0",
+    "vite": "^6.0.0",
+    "vitest": "^4.1.8"
   },
   "files": [
     "lib/index.js",

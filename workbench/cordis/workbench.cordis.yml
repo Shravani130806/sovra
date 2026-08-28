@@ -16,6 +16,7 @@
   config:
     userDirectory: file
     userDirectoryPath: '$DSH_HOME/workbench/users.yaml'
+    defaultPrincipal: doc-analyst
 
 - id: wb-policy
   name: '@mrpl/dsh-workbench-policy'

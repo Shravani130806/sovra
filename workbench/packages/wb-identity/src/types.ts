@@ -42,3 +42,27 @@ export class NullSessionPrincipalProvider implements SessionPrincipalProvider {
     return undefined
   }
 }
+
+/**
+ * Configurable provider that checks:
+ * 1. Runtime environment variables (`DSH_USER` or `SOVRA_USER`)
+ * 2. Static default configured in cordis.yml / plugin config (`defaultPrincipal`)
+ * 3. Fallback `undefined` if unconfigured.
+ */
+export class ConfigurableSessionPrincipalProvider implements SessionPrincipalProvider {
+  private readonly defaultPrincipal?: string | undefined
+
+  constructor(defaultPrincipal?: string | undefined) {
+    this.defaultPrincipal = defaultPrincipal
+  }
+
+  getPrincipal(_sessionId: WbSessionId): string | undefined {
+    if (typeof process !== 'undefined' && process.env) {
+      const envUser = process.env.DSH_USER || process.env.SOVRA_USER
+      if (envUser && envUser.trim() !== '') {
+        return envUser.trim()
+      }
+    }
+    return this.defaultPrincipal
+  }
+}
