@@ -11,6 +11,18 @@
 # wb-types has no plugin export (no `name`/`inject`/`apply`) — it contributes
 # no row here, only compile-time types consumed by the packages below.
 
+# Local models, served on-premise by Ollama. This is the only workbench row
+# permitted to open a socket, and only to its configured host — see
+# DESIGN.md §9 invariant 3. It mounts FIRST so the adapter routes exist before
+# wb-model-gateway validates its routing table against them.
+- id: wb-ollama
+  name: '@mrpl/dsh-workbench-ollama'
+  config:
+    baseUrl: 'http://127.0.0.1:11434'
+    # These ids are what wb-model-gateway's routing table below points at.
+    providers: ['llm-local', 'llm-vision-local', 'embedding-local', 'reranker-local']
+    embeddingModel: 'nomic-embed-text'
+
 - id: wb-identity
   name: '@mrpl/dsh-workbench-identity'
   config:
@@ -37,7 +49,7 @@
     # it resolves to. Adding a new open-weight model is one new row in the
     # base bundle plus one line here — never a code change (DESIGN.md §6.4).
     routing:
-      reasoning: llm-deepseek
+      reasoning: llm-local
       vision_reasoning: llm-vision-local
       embedding: embedding-local
       rerank: reranker-local

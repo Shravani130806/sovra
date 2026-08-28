@@ -22,6 +22,7 @@ import {
   type WbIngestFile,
   type WbVisionService,
   type WbModelGatewayService,
+  type WbEmbeddingsService,
   type WbPolicyService,
 } from '@mrpl/dsh-workbench-types'
 import * as fs from 'node:fs'
@@ -38,6 +39,8 @@ import { classificationRank, suggestClassification } from './classify.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
+    /** Optional embedding provider; absent means the lexical fallback. */
+    wbEmbeddings?: WbEmbeddingsService
     wbIngestion: WbIngestionService
     wbVision: WbVisionService
     wbModelGateway: WbModelGatewayService
@@ -264,11 +267,15 @@ function createService(ctx: Context, config: IngestionConfig): WbIngestionServic
         throw new Error('No chunks produced from document')
       }
 
-      // 10. Embed chunks via wb-model-gateway
+      // 10. Embed chunks. Writer and reader MUST use the same embedding, or
+      // the index is unreadable — vectors of different provenance compare to
+      // plausible numbers and meaningless rankings. Both sides prefer
+      // `ctx.wbEmbeddings` and fall back to the same lexical hash together.
       ctx.wbModelGateway.resolve('embedding')
-      const embeddings = textChunks.map((chunk) =>
-        generateEmbedding(chunk),
-      )
+      const embedder = ctx.get('wbEmbeddings')
+      const embeddings = embedder
+        ? await embedder.embed(textChunks)
+        : textChunks.map((chunk) => generateEmbedding(chunk))
 
       // 11. Write chunks to JSONL index (O_APPEND, atomic under PIPE_BUF)
       for (let i = 0; i < textChunks.length; i++) {

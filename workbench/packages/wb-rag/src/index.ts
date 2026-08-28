@@ -18,6 +18,7 @@ import type {
   WbCitation,
   WbPolicyService,
   WbModelGatewayService,
+  WbEmbeddingsService,
   WbRagRetrievedEvent,
 } from '@mrpl/dsh-workbench-types'
 
@@ -29,6 +30,8 @@ import { readIndex, search, lexicalScore, type IndexChunk } from './jsonl-index.
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
+    /** Optional embedding provider; absent means the lexical fallback. */
+    wbEmbeddings?: WbEmbeddingsService
     wbPolicy: WbPolicyService
     wbModelGateway: WbModelGatewayService
     wbRag: WbRagService
@@ -138,10 +141,16 @@ export function apply(ctx: Context, config: Config) {
   ctx.effect(() => {
     ctx.wbRag = {
       async retrieve(query: string, user: WbUser, sessionId: WbSessionId): Promise<WbRagResult> {
-        // 1. Embed query via wb-model-gateway
+        // 1. Embed the query. `ctx.wbEmbeddings` is the real seam; the
+        // gateway is still consulted so a misrouted capability fails the same
+        // way it always did. Falling back to the lexical hash keeps a
+        // deployment with no embedding model working — and says so, rather
+        // than pretending the results are semantic.
         ctx.wbModelGateway.resolve('embedding')
-
-        const queryEmbedding = generateEmbedding(query)
+        const embeddings = ctx.get('wbEmbeddings')
+        const queryEmbedding = embeddings
+          ? (await embeddings.embed([query]))[0]!
+          : generateEmbedding(query)
 
         // 2. Query the on-disk vector index
         const candidates = readIndex(config.indexPath)

@@ -22,6 +22,7 @@
     "@mrpl/dsh-workbench-rag": "workspace:*",
     "@mrpl/dsh-workbench-ingestion": "workspace:*",
     "@mrpl/dsh-workbench-artifacts": "workspace:*",
-    "@mrpl/dsh-workbench-admin-console": "workspace:*"
+    "@mrpl/dsh-workbench-admin-console": "workspace:*",
+    "@mrpl/dsh-workbench-ollama": "workspace:*"
   }
 }

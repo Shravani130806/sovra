@@ -913,9 +913,29 @@ Solution) and must hold regardless of which agent built which plugin:
    passes through by construction, not by each tool remembering to check.
 2. **RAG authorization happens before the LLM sees text**, never after
    (§6.5 step 3 before step 4).
-3. **No workbench plugin makes a raw network call.** All network-capable work
-   goes through the harness's existing `packages/web` capability, which
-   `wb-policy` gates like any other tool.
+3. **No workbench plugin reaches the internet directly.** All *egress* —
+   anything leaving the premises — goes through the harness's existing
+   `packages/web` capability, which `wb-policy` gates like any other tool.
+
+   **On-premise model traffic is the one exception, and it is narrow.** A
+   locally served model is reached over HTTP (Ollama listens on
+   `127.0.0.1:11434`), so a literal reading of "no network call" would make
+   sovereign inference impossible — the opposite of what this invariant
+   protects. The exception is therefore stated as a rule with teeth:
+
+   - Only an **LLM adapter or an embedding provider** may open a socket, and
+     only to its configured model host. No other plugin may.
+   - The host must resolve to a **loopback or private address**
+     (`127.0.0.0/8`, `::1`, `10/8`, `172.16/12`, `192.168/16`, or `.local`).
+     A model host pointing at a public address is a **misconfiguration that
+     fails loud at load** (invariant 5), not a request that is merely denied
+     later — a deployment must not be able to silently route MRPL's
+     classified corpus to a hosted API by editing one config line.
+   - `packages/web` remains the only path for anything else.
+
+   This is what makes the sovereignty claim checkable rather than asserted:
+   the set of components that may open a socket is small, named, and each one
+   refuses a non-private destination.
 4. **Nothing is ALLOWed silently.** Every `WbPolicyDecision`, including ALLOW,
    is published as `wb/policy/decision` and recorded by `wb-audit`.
 5. **A missing/misconfigured routing entry in `wb-model-gateway` fails at
@@ -1027,3 +1047,9 @@ around a gap.
 - **RESOLVED (2026-08-28) — §7.3 `WbAuditService` gains `subscribe()` and a bounded `query(WbAuditFilter)`.** The seam offered neither change notification nor a limit, so every live surface had to poll and re-read the whole JSONL log to render its last few rows — `wb-admin-console` did exactly that on a 4s timer. `query` now takes `since` and `limit` and returns **newest first**: capping the oldest entries would leave a live feed frozen at the first rows ever written, which is worse than no bound at all. `subscribe` runs listeners synchronously inside `record`; a throwing listener is logged and skipped, because the append has already succeeded and one bad subscriber must not lose the entry or starve the others.
 
 - **RESOLVED (2026-08-28) — `wb-ui` activity, sources and artifacts read live state.** `src/client/live/workbench-store.ts` holds them and `src/host/bridge.ts` publishes from `wb-audit` plus the `wb/rag/retrieved` and `wb/policy/decision` streams. Remaining fixture data in `wb-ui` is chat message history and navigation, which need the harness session stream (`dsh-sdk`) rather than a workbench service.
+
+- **RESOLVED (2026-08-29) — §9 invariant 3 amended, and §7.3 gains `WbEmbeddingsService`.** The invariant forbade any raw network call, which made sovereign inference impossible to implement: a locally served model is reached over HTTP. It now distinguishes *egress* (still `packages/web` only) from *on-premise model traffic*, permitting an LLM adapter or embedding provider to reach its configured model host — and requiring that host to be loopback or private, enforced at load rather than denied later. `wb-ollama` is the only package that may open a socket.
+
+  Separately, `ctx.llm` is chat-only: `GenerateOptions`/`StreamChunk` describe a conversation, so nothing behind `resolve('embedding')` could ever service it. That is why `wb-rag` and `wb-ingestion` both hashed their text. `WbEmbeddingsService` is the missing seam; both plugins prefer it and fall back to the same lexical hash **together**, since writer and reader must always agree or vectors of different provenance compare to plausible numbers and meaningless rankings.
+
+- **wb-ollama (2026-08-29):** `wb-model-gateway` still routes `'rerank'` to this provider, but Ollama has no rerank endpoint and `wb-rag`'s reranker remains a pass-through. Either implement embedding-similarity reranking inside `wb-rag`, run a cross-encoder on a second endpoint, or drop `'rerank'` from the frozen `WbModelCapability` union — a capability that resolves to something which cannot serve it is the situation `'embedding'` was just rescued from.
