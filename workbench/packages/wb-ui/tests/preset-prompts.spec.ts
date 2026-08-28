@@ -19,7 +19,7 @@ describe('preset prompts and context injection', () => {
     expect(PRESET_PROMPTS['artifact']).toContain('artifact generation agent for the Sovereign AI Workbench')
   })
 
-  it('builds system prompt with persona and sovereign corpus documents', () => {
+  it('builds system prompt with persona and sovereign corpus documents metadata without leaking raw content', () => {
     const docs = [
       {
         title: 'a.txt',
@@ -34,7 +34,23 @@ describe('preset prompts and context injection', () => {
     expect(prompt).toContain('[SOVEREIGN DOCUMENT CORPUS]')
     expect(prompt).toContain('a.txt')
     expect(prompt).toContain('RESTRICTED')
-    expect(prompt).toContain('Critical sovereign protocol specification')
+    // Corpus document contents must NOT be leaked into prompt; access requires tool invocation
+    expect(prompt).not.toContain('Critical sovereign protocol specification')
+    expect(prompt).toContain('MUST use policy-governed tools')
+  })
+
+  it('includes direct chat attachments content directly in prompt', () => {
+    const directAttachments = [
+      {
+        name: 'notes.txt',
+        content: 'Direct meeting notes from chat attachment',
+      },
+    ]
+
+    const prompt = buildTurnSystemPrompt('document-analyst', [], 'Look at my notes', directAttachments)
+    expect(prompt).toContain('[DIRECT CHAT ATTACHMENTS]')
+    expect(prompt).toContain('notes.txt')
+    expect(prompt).toContain('Direct meeting notes from chat attachment')
   })
 
   it('falls back to default sovereign prompt when preset is unknown', () => {

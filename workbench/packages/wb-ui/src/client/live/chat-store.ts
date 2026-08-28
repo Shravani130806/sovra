@@ -8,10 +8,18 @@
  * @module @mrpl/dsh-workbench-ui/client/live/chat-store
  */
 
-import type { WbCitation } from '@mrpl/dsh-workbench-types'
+import {
+  asWbAuditEntryId,
+  asWbSessionId,
+  asWbUserId,
+  type WbCitation,
+  type WbClassification,
+} from '@mrpl/dsh-workbench-types'
 import { getModelsState, selectModel, type ModelSelection } from './models-store.ts'
-import { getDocumentsState } from './documents-store.ts'
+import { getDocumentsState, getDocumentFullText } from './documents-store.ts'
 import { buildTurnSystemPrompt } from './preset-prompts.ts'
+import { publishAuditEntry, publishChatDecision, publishRetrievalCitations } from './workbench-store.ts'
+import { publishPolicyDecision } from '../policy/policy-store.ts'
 
 export interface ToolNode {
   callId: string
@@ -54,6 +62,21 @@ export interface ChatState {
 
 const STORAGE_KEY = 'dsh:workbench:chat_sessions'
 
+const chatAttachmentContentMap = new Map<string, string>()
+
+/**
+ * Register the text content of a file attached directly in the chat.
+ * Direct chat attachments are readable by the model directly, unlike
+ * corpus documents which require tool-based retrieval.
+ */
+export function registerChatAttachmentContent(filename: string, content: string): void {
+  chatAttachmentContentMap.set(filename, content)
+}
+
+export function getChatAttachmentContent(filename: string): string | undefined {
+  return chatAttachmentContentMap.get(filename)
+}
+
 function loadSavedSessions(): { sessions: ChatSession[]; activeSessionId: string } {
   if (typeof window !== 'undefined' && window.localStorage) {
     try {
@@ -71,15 +94,7 @@ function loadSavedSessions(): { sessions: ChatSession[]; activeSessionId: string
   }
   const defaultId = 'session-1'
   return {
-    sessions: [
-      {
-        id: defaultId,
-        title: 'New Session',
-        turns: [],
-        preset: 'document-analyst',
-        updatedAt: new Date().toISOString(),
-      },
-    ],
+    sessions: [],
     activeSessionId: defaultId,
   }
 }
@@ -98,14 +113,13 @@ function saveSessions(sessions: ChatSession[], activeSessionId: string): void {
 }
 
 const initialData = loadSavedSessions()
-const initialActiveSession = initialData.sessions.find((s) => s.id === initialData.activeSessionId) ?? initialData.sessions[0]!
 
 export const INITIAL_CHAT_STATE: ChatState = {
   activeSessionId: initialData.activeSessionId,
   sessions: initialData.sessions,
-  turns: initialActiveSession.turns,
+  turns: [],
   generating: false,
-  preset: initialActiveSession.preset ?? 'document-analyst',
+  preset: 'document-analyst',
   abort: undefined,
 }
 
@@ -180,7 +194,7 @@ export function startTurn(
       selectedModel: activeModel ?? undefined,
       updatedAt: new Date().toISOString(),
     }
-    sessions = [newSession, ...state.sessions]
+    sessions = [...state.sessions, newSession]
   } else {
     const existing = state.sessions[sessionIndex]!
     const updated: ChatSession = {
@@ -204,8 +218,306 @@ export function startTurn(
   return assistantId
 }
 
+const CLASSIFICATION_RANK: Record<string, number> = {
+  PUBLIC: 0,
+  INTERNAL: 1,
+  CONFIDENTIAL: 2,
+  RESTRICTED: 3,
+}
+
+const DEFAULT_OPERATOR_CLEARANCE = 'INTERNAL'
+
+async function streamCompletion(
+  url: string,
+  modelName: string,
+  messages: Array<{ role: string; content: string }>,
+  contextLength: number,
+  signal: AbortSignal,
+  onDelta: (delta: string) => void,
+): Promise<string> {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream, application/json',
+    },
+    body: JSON.stringify({
+      model: modelName,
+      messages,
+      stream: true,
+      options: {
+        num_ctx: contextLength,
+      },
+    }),
+    signal,
+  })
+
+  if (!res.ok) {
+    throw new Error(`Model request failed with HTTP ${res.status}: ${res.statusText}`)
+  }
+
+  if (!res.body) {
+    throw new Error('No response body returned from model endpoint')
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+  let fullOutput = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed === 'data: [DONE]') continue
+      if (trimmed.startsWith('data: ')) {
+        try {
+          const data = JSON.parse(trimmed.slice(6)) as {
+            choices?: Array<{
+              delta?: { content?: string; reasoning?: string }
+              text?: string
+            }>
+          }
+          const delta = data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.text ?? ''
+          if (delta) {
+            fullOutput += delta
+            onDelta(delta)
+          }
+        } catch {
+          // Ignore partial/unparseable SSE chunks
+        }
+      }
+    }
+  }
+
+  return fullOutput
+}
+
+interface ModelTurnContext {
+  url: string
+  modelName: string
+  contextLength: number
+  systemPrompt: string
+  turnMessages: Array<{ role: string; content: string }>
+  signal: AbortSignal
+}
+
 /**
- * Dispatch prompt to local Ollama inference API with streaming.
+ * Checks for tool calling intentions (either JSON blocks in model output or direct document queries)
+ * and executes them against the SOVRA policy engine.
+ */
+async function handleToolCallingAndPolicy(
+  userQuery: string,
+  accumulatedAssistantText: string,
+  modelContext?: ModelTurnContext,
+): Promise<boolean> {
+  const docs = getDocumentsState().documents
+  if (docs.length === 0) return false
+
+  let targetFilename: string | undefined
+  let toolName = 'read'
+
+  // 1. Check for JSON tool call in assistant text
+  const jsonMatch = accumulatedAssistantText.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
+  if (jsonMatch && jsonMatch[1]) {
+    try {
+      const parsed = JSON.parse(jsonMatch[1].trim()) as Record<string, unknown>
+      const path = (parsed.path ?? parsed.file ?? parsed.filename ?? parsed.documentId ?? parsed.request) as string | undefined
+      if (path) {
+        targetFilename = path.replace(/^\/Documents\//i, '').replace(/^\.\//, '').replace(/^["']|["']$/g, '').trim()
+        toolName = (parsed.tool ?? parsed.actionType ?? parsed.action ?? 'read') as string
+      }
+    } catch {
+      // Non-JSON block
+    }
+  }
+
+  // 2. Fallback: Check if user query explicitly asked to read/access a corpus document
+  if (!targetFilename) {
+    const lowerUserQuery = userQuery.toLowerCase()
+    for (const doc of docs) {
+      const lowerTitle = doc.title.toLowerCase()
+      const baseTitle = lowerTitle.includes('.') ? lowerTitle.split('.')[0]! : lowerTitle
+      if (
+        lowerUserQuery.includes(lowerTitle) ||
+        (baseTitle.length > 2 && lowerUserQuery.includes(baseTitle)) ||
+        (lowerTitle.includes('air-gapped') && lowerUserQuery.includes('air-gapped'))
+      ) {
+        targetFilename = doc.title
+        break
+      }
+    }
+  }
+
+  if (!targetFilename) return false
+
+  // Find document in corpus
+  const matchedDoc = docs.find((d) => {
+    const dTitle = d.title.toLowerCase()
+    const tFile = targetFilename!.toLowerCase()
+    return dTitle === tFile || dTitle.includes(tFile) || tFile.includes(dTitle)
+  })
+
+  if (!matchedDoc) return false
+
+  const docClassification = (matchedDoc.classification ?? 'INTERNAL').toUpperCase() as WbClassification
+  const docRank = CLASSIFICATION_RANK[docClassification] ?? 1
+  const userRank = CLASSIFICATION_RANK[DEFAULT_OPERATOR_CLEARANCE] ?? 1
+
+  const callId = `call-${Date.now()}`
+  const docContent = getDocumentFullText(matchedDoc)
+  const currentSessionId = asWbSessionId(state.activeSessionId)
+  const currentUserId = asWbUserId('user-operator')
+
+  if (docRank > userRank) {
+    // Policy DENY
+    const reason = `Policy DENY: Document "${matchedDoc.title}" classification (${docClassification}) exceeds operator clearance (${DEFAULT_OPERATOR_CLEARANCE}).`
+
+    upsertToolNode({
+      callId,
+      name: toolName,
+      args: { path: matchedDoc.title, classification: docClassification },
+      status: 'denied',
+      decision: 'DENY',
+      decisionReason: reason,
+    })
+
+    publishPolicyDecision({
+      user: currentUserId,
+      sessionId: currentSessionId,
+      agentPreset: state.preset,
+      action: 'read_data',
+      resource: matchedDoc.id,
+      decision: 'DENY',
+      reason,
+      destination: 'local',
+      classification: docClassification,
+    })
+
+    publishAuditEntry({
+      id: asWbAuditEntryId(`audit-${Date.now()}`),
+      sessionId: currentSessionId,
+      userId: currentUserId,
+      at: new Date().toISOString(),
+      kind: 'policy_decision',
+      summary: `Policy DENY: Blocked read of ${docClassification} file "${matchedDoc.title}"`,
+      payload: { decision: 'DENY', name: toolName, value: { path: matchedDoc.title, classification: docClassification } },
+    })
+
+    publishChatDecision('DENY', reason)
+
+    // Remove raw JSON snippet and append clean policy intercept notice
+    const cleanText = accumulatedAssistantText.replace(/```(?:json)?\s*[\s\S]*?\s*```/g, '').trim()
+    const denialText = `${cleanText ? cleanText + '\n\n' : ''}🛡️ **Policy Intercept (DENY)**: Access to document \`${matchedDoc.title}\` (Classification: \`${docClassification}\`) was evaluated and **blocked** by the SOVRA Policy Engine.\n\n*Reason*: The document's classification level (\`${docClassification}\`) exceeds your current session clearance (\`${DEFAULT_OPERATOR_CLEARANCE}\`). Tool execution was terminated and no unredacted contents were provided.`
+    replaceLastAssistantText(denialText)
+    return true
+  } else {
+    // Policy ALLOW
+    const reason = `Policy ALLOW: Operator clearance (${DEFAULT_OPERATOR_CLEARANCE}) satisfies classification (${docClassification}) for tool "${toolName}".`
+
+    upsertToolNode({
+      callId,
+      name: toolName,
+      args: { path: matchedDoc.title, classification: docClassification },
+      status: 'done',
+      decision: 'ALLOW',
+      result: docContent || '(Document is empty)',
+    })
+
+    publishPolicyDecision({
+      user: currentUserId,
+      sessionId: currentSessionId,
+      agentPreset: state.preset,
+      action: 'read_data',
+      resource: matchedDoc.id,
+      decision: 'ALLOW',
+      reason,
+      destination: 'local',
+      classification: docClassification,
+    })
+
+    publishAuditEntry({
+      id: asWbAuditEntryId(`audit-${Date.now()}`),
+      sessionId: currentSessionId,
+      userId: currentUserId,
+      at: new Date().toISOString(),
+      kind: 'policy_decision',
+      summary: `Policy ALLOW: Permitted read of ${docClassification} file "${matchedDoc.title}"`,
+      payload: { decision: 'ALLOW', name: toolName, value: { path: matchedDoc.title, classification: docClassification } },
+    })
+
+    publishAuditEntry({
+      id: asWbAuditEntryId(`audit-${Date.now() + 1}`),
+      sessionId: currentSessionId,
+      userId: currentUserId,
+      at: new Date().toISOString(),
+      kind: 'tool_result',
+      summary: `Tool ${toolName} completed for "${matchedDoc.title}"`,
+      payload: { name: toolName, value: { path: matchedDoc.title, size: docContent.length } },
+    })
+
+    publishChatDecision('ALLOW', '')
+
+    const citations: WbCitation[] = [
+      {
+        documentId: matchedDoc.id,
+        title: matchedDoc.title,
+        page: 1,
+        section: 'Full Document',
+      },
+    ]
+    attachCitations(citations)
+    publishRetrievalCitations(citations)
+
+    // Clear previous assistant text (e.g. raw JSON tool request) to stream model interpretation
+    replaceLastAssistantText('')
+
+    if (modelContext) {
+      const priorTurns = modelContext.turnMessages.slice(0, -1)
+      const followUpMessages = [
+        { role: 'system', content: modelContext.systemPrompt },
+        ...priorTurns,
+        {
+          role: 'user',
+          content: `${userQuery}\n\n[Context from retrieved document "${matchedDoc.title}" (${docClassification})]:\n\"\"\"\n${docContent}\n\"\"\"\n\nPlease analyze, summarize, or answer based on the above retrieved document content according to my request. Do not dump the entire raw file verbatim; provide your interpretation and structured answer directly.`,
+        },
+      ]
+
+      const followUpOutput = await streamCompletion(
+        modelContext.url,
+        modelContext.modelName,
+        followUpMessages,
+        modelContext.contextLength,
+        modelContext.signal,
+        (delta) => appendDelta(delta),
+      )
+
+      if (!followUpOutput || followUpOutput.trim() === '') {
+        replaceLastAssistantText(
+          `I have reviewed **${matchedDoc.title}** [${docClassification}].\n\n${docContent.slice(0, 400)}${docContent.length > 400 ? '...' : ''}`,
+        )
+      }
+    }
+
+    return true
+  }
+}
+
+function replaceLastAssistantText(newText: string): void {
+  const { turns, sessions } = withLastTurn((turn) => ({
+    ...turn,
+    text: newText,
+  }))
+  commit({ ...state, turns, sessions })
+}
+
+/**
+ * Dispatch prompt to local Ollama inference API with streaming and tool execution.
  */
 export async function dispatchTurnToModel(text: string, abort: AbortController, attachments?: string[]): Promise<void> {
   startTurn(text, abort, attachments)
@@ -230,7 +542,13 @@ export async function dispatchTurnToModel(text: string, abort: AbortController, 
 
   try {
     const docsState = getDocumentsState()
-    const systemPrompt = state.systemPromptOverride ?? buildTurnSystemPrompt(state.preset, docsState.documents, text)
+    const directAttachments = (attachments ?? []).map((name) => ({
+      name,
+      content: getChatAttachmentContent(name),
+    }))
+    const systemPrompt =
+      state.systemPromptOverride ??
+      buildTurnSystemPrompt(state.preset, docsState.documents, text, directAttachments)
 
     const turnMessages = state.turns
       .filter((t) => t.text.trim() !== '')
@@ -244,63 +562,24 @@ export async function dispatchTurnToModel(text: string, abort: AbortController, 
       ...turnMessages,
     ]
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'text/event-stream, application/json',
-      },
-      body: JSON.stringify({
-        model: modelName,
-        messages,
-        stream: true,
-        options: {
-          num_ctx: contextLength,
-        },
-      }),
+    const firstPassOutput = await streamCompletion(
+      url,
+      modelName,
+      messages,
+      contextLength,
+      abort.signal,
+      (delta) => appendDelta(delta),
+    )
+
+    // After model generation first pass, evaluate if tool calling occurred
+    await handleToolCallingAndPolicy(text, firstPassOutput, {
+      url,
+      modelName,
+      contextLength,
+      systemPrompt,
+      turnMessages,
       signal: abort.signal,
     })
-
-    if (!res.ok) {
-      throw new Error(`Model request failed with HTTP ${res.status}: ${res.statusText}`)
-    }
-
-    if (!res.body) {
-      throw new Error('No response body returned from model endpoint')
-    }
-
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder('utf-8')
-    let buffer = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (!trimmed || trimmed === 'data: [DONE]') continue
-        if (trimmed.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(trimmed.slice(6)) as {
-              choices?: Array<{
-                delta?: { content?: string; reasoning?: string }
-                text?: string
-              }>
-            }
-            const delta = data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.text ?? ''
-            if (delta) {
-              appendDelta(delta)
-            }
-          } catch {
-            // Ignore partial/unparseable SSE chunks
-          }
-        }
-      }
-    }
 
     finishTurn()
   } catch (err: unknown) {
@@ -427,23 +706,36 @@ export function appendCitation(citation: WbCitation): void {
 
 export function setPreset(preset: string): void {
   const updatedSessions = state.sessions.map((s) =>
-    s.id === state.activeSessionId ? { ...s, preset, updatedAt: new Date().toISOString() } : s,
+    s.id === state.activeSessionId
+      ? { ...s, preset, updatedAt: new Date().toISOString() }
+      : s,
   )
-  commit({
-    ...state,
-    preset,
-    sessions: updatedSessions,
-  })
+  commit({ ...state, preset, sessions: updatedSessions })
 }
 
-export function createSession(preset = 'document-analyst'): string {
-  const id = `session-${Date.now()}`
-  const nonEmptySessions = state.sessions.filter((s) => s.turns.length > 0)
-
+export function switchSession(id: string): void {
+  const session = state.sessions.find((s) => s.id === id)
+  if (!session) return
   commit({
     ...state,
     activeSessionId: id,
-    sessions: nonEmptySessions,
+    turns: session.turns,
+    preset: session.preset,
+    generating: false,
+    abort: undefined,
+  })
+  if (session.selectedModel) {
+    void selectModel(session.selectedModel)
+  }
+}
+
+export const selectChatSession = switchSession
+
+export function newChat(preset = state.preset): string {
+  const id = `session-${Date.now()}`
+  commit({
+    ...state,
+    activeSessionId: id,
     turns: [],
     preset,
     generating: false,
@@ -452,48 +744,42 @@ export function createSession(preset = 'document-analyst'): string {
   return id
 }
 
-export const newChat = createSession
+export const createNewSession = newChat
 
-export function switchSession(sessionId: string): void {
-  const target = state.sessions.find((s) => s.id === sessionId)
-  if (!target) return
-
-  if (target.selectedModel) {
-    void selectModel(target.selectedModel)
+export function deleteSession(id: string): void {
+  const sessions = state.sessions.filter((s) => s.id !== id)
+  let activeSessionId = state.activeSessionId
+  let turns = state.turns
+  let preset = state.preset
+  if (activeSessionId === id) {
+    if (sessions.length > 0) {
+      const next = sessions[0]!
+      activeSessionId = next.id
+      turns = next.turns
+      preset = next.preset
+    } else {
+      activeSessionId = `session-${Date.now()}`
+      turns = []
+    }
   }
-
-  commit({
-    ...state,
-    activeSessionId: target.id,
-    turns: target.turns,
-    preset: target.preset,
-    generating: false,
-    abort: undefined,
-  })
+  commit({ ...state, sessions, activeSessionId, turns, preset })
 }
 
-export function deleteSession(sessionId: string): void {
-  const filtered = state.sessions.filter((s) => s.id !== sessionId)
-  commit({
-    ...state,
-    sessions: filtered,
-    activeSessionId: filtered.length > 0 ? filtered[0]!.id : '',
-    turns: filtered.length > 0 ? filtered[0]!.turns : [],
-    preset: filtered.length > 0 ? filtered[0]!.preset : 'document-analyst',
-    generating: false,
-    abort: undefined,
-  })
+export function setSystemPromptOverride(prompt?: string): void {
+  commit({ ...state, systemPromptOverride: prompt })
 }
 
 export function resetChat(): void {
+  state.abort?.abort()
+  chatAttachmentContentMap.clear()
   const defaultId = 'session-1'
-  state = {
+  commit({
     activeSessionId: defaultId,
     sessions: [],
     turns: [],
     generating: false,
     preset: 'document-analyst',
     abort: undefined,
-  }
-  commit(state)
+    systemPromptOverride: undefined,
+  })
 }

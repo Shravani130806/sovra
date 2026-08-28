@@ -2,6 +2,7 @@ import { useState } from 'react'
 import styles from './DocumentViewer.module.css'
 import { useDocuments, useNavigation, useSourceCitations } from '../live/hooks.ts'
 import { navigate } from '../live/navigation-store.ts'
+import { getDocumentFullText, createChunksFromText } from '../live/documents-store.ts'
 
 export function DocumentViewer() {
   const { documentId, locator } = useNavigation()
@@ -36,14 +37,15 @@ export function DocumentViewer() {
 
   const title = doc.title
   const classification = doc.classification
+  const fullText = getDocumentFullText(doc)
   const chunks = doc.chunksData && doc.chunksData.length > 0
     ? doc.chunksData
-    : doc.content
-      ? [{ id: 'c1', text: doc.content, page: 1, section: 'Full Document' }]
+    : fullText
+      ? createChunksFromText(fullText)
       : []
 
   const totalPages = Math.max(1, Math.max(...chunks.map((c) => c.page ?? 1), doc.chunks))
-  const displayedChunks = chunks.filter((c) => (c.page ?? 1) === currentPage || chunks.length <= 3)
+  const displayedChunks = chunks.filter((c) => (c.page ?? 1) === currentPage || chunks.length <= 4)
 
   const relatedCitations = citations.filter((c) => c.documentId === documentId)
 
@@ -125,7 +127,7 @@ export function DocumentViewer() {
                 })
               ) : (
                 <div style={{ color: 'var(--wb-text-secondary, #a1a1aa)', padding: '2rem 0' }}>
-                  {doc.content ? doc.content : 'Document content indexed for semantic retrieval.'}
+                  {fullText ? fullText : 'Document content indexed for semantic retrieval.'}
                 </div>
               )}
             </div>

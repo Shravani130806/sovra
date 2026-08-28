@@ -43,30 +43,36 @@ export const DEFAULT_SOVEREIGN_SYSTEM_PROMPT = `You are SOVRA — Sovereign AI W
 
 /**
  * Builds the complete system prompt for a turn, incorporating the active preset
- * persona and the current corpus manifest and relevant content.
+ * persona, sovereign document corpus metadata (without leaking unread content),
+ * and direct chat attachments.
  */
 export function buildTurnSystemPrompt(
   preset: string,
   corpusDocs: Array<{ title: string; classification: string; content?: string | undefined; chunks: number }>,
-  userQuery?: string,
+  _userQuery?: string,
+  chatAttachments?: Array<{ name: string; content?: string | undefined }>,
 ): string {
   const persona = PRESET_PROMPTS[preset] ?? DEFAULT_SOVEREIGN_SYSTEM_PROMPT
 
   let corpusSection = ''
   if (corpusDocs.length > 0) {
-    corpusSection = `\n\n[SOVEREIGN DOCUMENT CORPUS]\nThe following documents are ingested in the local workspace corpus:\n`
+    corpusSection = `\n\n[SOVEREIGN DOCUMENT CORPUS]\nThe following documents are stored in the Sovereign Document Corpus:\n`
     for (const doc of corpusDocs) {
       corpusSection += `- Document: "${doc.title}" [Classification: ${doc.classification}, Chunks: ${doc.chunks}]\n`
-      // If the user's query mentions this document name or if it's small, inject its content directly
-      const q = (userQuery ?? '').toLowerCase()
-      const titleLower = doc.title.toLowerCase()
-      const isMentioned = q.includes(titleLower) || (titleLower.includes('.') && q.includes(titleLower.split('.')[0]!))
+    }
+    corpusSection += `\nImportant Policy Instruction: The content of documents stored in the Sovereign Document Corpus is NOT provided in this prompt and is governed by enterprise classification boundaries. You MUST use policy-governed tools (e.g. tool-fs read or RAG retrieval) to access or inspect any corpus document. When you need to read a corpus document, invoke the tool by outputting:\n\`\`\`json\n{\n  "tool": "read",\n  "path": "<document_title>"\n}\n\`\`\`\nDo not guess, fabricate, or simulate document contents without a tool call.\n`
+  }
 
-      if (doc.content && (isMentioned || corpusDocs.length <= 3)) {
-        corpusSection += `  Content Preview:\n"""\n${doc.content.slice(0, 3000)}\n"""\n`
+  let attachmentsSection = ''
+  if (chatAttachments && chatAttachments.length > 0) {
+    const textAttachments = chatAttachments.filter((a) => a.content && a.content.trim() !== '')
+    if (textAttachments.length > 0) {
+      attachmentsSection = `\n\n[DIRECT CHAT ATTACHMENTS]\nThe user directly attached the following document(s) in this chat message (directly readable):\n`
+      for (const att of textAttachments) {
+        attachmentsSection += `\n--- File: ${att.name} ---\n"""\n${att.content}\n"""\n`
       }
     }
   }
 
-  return `${persona}${corpusSection}`
+  return `${persona}${corpusSection}${attachmentsSection}`
 }

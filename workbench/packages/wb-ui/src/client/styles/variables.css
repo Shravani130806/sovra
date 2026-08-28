@@ -1,23 +1,58 @@
 :root {
   /* Enterprise Colors */
-  --wb-bg-app: #141414;
-  --wb-bg-surface: #1e1e1e;
-  --wb-bg-surface-hover: #2a2a2a;
-  
-  --wb-border-subtle: #333333;
-  --wb-border-strong: #444444;
-  
+  --wb-bg-app: #121214;
+  --wb-bg-surface: #18181c;
+  --wb-bg-surface-hover: #222228;
+
+  --wb-border-subtle: #2a2a32;
+  --wb-border-strong: #383844;
+
   --wb-text-primary: #ffffff;
-  --wb-text-secondary: #999999;
-  --wb-text-muted: #666666;
-  
+  --wb-text-secondary: #9ea3ae;
+  --wb-text-muted: #646875;
+
+  --wb-accent: #3b82f6;
+  --wb-accent-hover: #2563eb;
+
   --wb-color-sovereign: #10b981;
-  --wb-color-sovereign-bg: rgba(16, 185, 129, 0.1);
+  --wb-color-sovereign-bg: rgba(16, 185, 129, 0.12);
   --wb-color-blocked: #ef4444;
-  --wb-color-blocked-bg: rgba(239, 68, 68, 0.1);
+  --wb-color-blocked-bg: rgba(239, 68, 68, 0.12);
   --wb-color-approval: #f59e0b;
-  --wb-color-approval-bg: rgba(245, 158, 11, 0.1);
-  
+  --wb-color-approval-bg: rgba(245, 158, 11, 0.12);
+
+  /* Fallback dsh theme variables */
+  --dsh-theme-bg-body: #121214;
+  --dsh-theme-bg-surface: #18181c;
+  --dsh-theme-border: #2a2a32;
+  --dsh-theme-text-primary: #ffffff;
+  --dsh-theme-text-secondary: #9ea3ae;
+  --dsh-theme-text-tertiary: #646875;
+
   /* Focus Rings */
-  --wb-focus-ring: 0 0 0 2px rgba(16, 185, 129, 0.4);
+  --wb-focus-ring: 0 0 0 2px rgba(59, 130, 246, 0.4);
+}
+
+/* Custom Sleek Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
 }

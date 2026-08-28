@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { asWbDocumentId } from '@mrpl/dsh-workbench-types'
 import styles from './ChatComposer.module.css'
 import { useChat, useChatState } from '../live/hooks.ts'
-import { abortTurn } from '../live/chat-store.ts'
+import { abortTurn, registerChatAttachmentContent } from '../live/chat-store.ts'
 import { completeUpload, markUploading, queueUpload } from '../live/documents-store.ts'
 
 /** Rows the textarea may grow to before it scrolls internally. */
@@ -41,6 +41,18 @@ export function ChatComposer({ onSend }: ChatComposerProps) {
   const handleAttach = (files: FileList | null) => {
     if (!files || files.length === 0) return
     const next = Array.from(files)
+    for (const file of next) {
+      if (
+        file.type?.startsWith('text/') ||
+        file.name.match(/\.(txt|md|json|csv|py|js|ts|tsx|jsx|html|css|yaml|yml|log|xml|sh|env)$/i)
+      ) {
+        if (typeof file.text === 'function') {
+          file.text().then((content) => {
+            registerChatAttachmentContent(file.name, content)
+          }).catch(() => {})
+        }
+      }
+    }
     setAttachments((prev) => [...prev, ...next])
     if (fileInput.current) {
       fileInput.current.value = ''
@@ -150,48 +162,38 @@ export function ChatComposer({ onSend }: ChatComposerProps) {
 
         <textarea
           ref={textarea}
-          className={styles.textarea}
-          placeholder="Ask the Sovereign AI Workbench..."
-          aria-label="Message"
-          rows={1}
+          className={styles.input}
           value={draft}
+          placeholder={generating ? 'Waiting for response…' : 'Message Sovereign AI…'}
+          aria-label="Message"
           disabled={generating}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKeyDown}
+          rows={1}
         />
 
-        <div className={styles.composerActions}>
-          {generating ? (
-            <button
-              className={`${styles.sendButton} ${styles.stopButton}`}
-              title="Stop generating"
-              aria-label="Stop generating"
-              type="button"
-              onClick={() => abortTurn()}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <rect x="6" y="6" width="12" height="12" rx="2" />
-              </svg>
-            </button>
-          ) : (
-            <button
-              className={styles.sendButton}
-              title="Send Message"
-              aria-label="Send Message"
-              type="button"
-              disabled={draft.trim() === '' && attachments.length === 0}
-              onClick={send}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <line x1="22" y1="2" x2="11" y2="13" />
-                <polygon points="22 2 15 22 11 13 2 9 22 2" />
-              </svg>
-            </button>
-          )}
-        </div>
-      </div>
-      <div className={styles.footerText}>
-        AI-generated content may be incorrect. Confidential data remains sovereign.
+        {generating ? (
+          <button
+            type="button"
+            className={`${styles.button} ${styles.buttonStop}`}
+            onClick={abortTurn}
+            aria-label="Stop generating"
+            title="Stop generating"
+          >
+            ■
+          </button>
+        ) : (
+          <button
+            type="button"
+            className={`${styles.button} ${styles.buttonSend}`}
+            onClick={send}
+            disabled={draft.trim() === '' && attachments.length === 0}
+            aria-label="Send Message"
+            title="Send Message"
+          >
+            ▲
+          </button>
+        )}
       </div>
     </div>
   )

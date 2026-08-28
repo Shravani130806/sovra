@@ -26,6 +26,37 @@ export interface DocumentsViewProps {
   onIngest?: (jobId: string, file: File, classification: WbClassification) => void
 }
 
+async function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve) => {
+    try {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const text = typeof reader.result === 'string' ? reader.result : ''
+        resolve(text)
+      }
+      reader.onerror = async () => {
+        if (typeof file.text === 'function') {
+          try {
+            const t = await file.text()
+            resolve(t || '')
+          } catch {
+            resolve('')
+          }
+        } else {
+          resolve('')
+        }
+      }
+      reader.readAsText(file)
+    } catch {
+      if (typeof file.text === 'function') {
+        file.text().then(resolve).catch(() => resolve(''))
+      } else {
+        resolve('')
+      }
+    }
+  })
+}
+
 export function DocumentsView({ onIngest }: DocumentsViewProps) {
   const { documents, uploads } = useDocuments()
   const [classification, setClassification] = useState<WbClassification>(DEFAULT_CLASSIFICATION)
@@ -48,33 +79,26 @@ export function DocumentsView({ onIngest }: DocumentsViewProps) {
         // transition to ingesting and land in the corpus table with full text.
         markUploading(jobId)
         void (async () => {
-          let textContent = ''
-          try {
-            if (typeof file.text === 'function') {
-              textContent = await file.text()
-            }
-          } catch {
-            // ignore binary read failure
-          }
-
+          const textContent = await readFileAsText(file)
           const chunksData = textContent ? createChunksFromText(textContent) : undefined
           const chunkCount =
             chunksData && chunksData.length > 0 ? chunksData.length : Math.max(1, Math.ceil(file.size / 1024))
 
-          setTimeout(() => {
-            completeUpload(jobId, {
-              id: asWbDocumentId(`doc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`),
-              title: file.name,
-              classification,
-              declaredClassification: classification,
-              chunks: chunkCount,
-              content: textContent || undefined,
-              chunksData: chunksData || undefined,
-              ingestedAt: new Date().toISOString(),
-            })
-          }, 150)
+          completeUpload(jobId, {
+            id: asWbDocumentId(`doc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`),
+            title: file.name,
+            classification,
+            declaredClassification: classification,
+            chunks: chunkCount,
+            content: textContent || undefined,
+            chunksData: chunksData || undefined,
+            ingestedAt: new Date().toISOString(),
+          })
         })()
       }
+    }
+    if (input.current) {
+      input.current.value = ''
     }
   }
 
@@ -127,8 +151,6 @@ export function DocumentsView({ onIngest }: DocumentsViewProps) {
                 <span className={styles.uploadName}>{job.filename}</span>
                 <span className={styles.uploadStatus}>{job.status}</span>
                 {job.raisedTo ? (
-                  // A raise must be visible; an operator who declared INTERNAL
-                  // needs to know the document is stored higher.
                   <span className={styles.raised}>raised to {job.raisedTo}</span>
                 ) : null}
                 {job.error ? <span className={styles.uploadError}>{job.error}</span> : null}
@@ -148,12 +170,12 @@ export function DocumentsView({ onIngest }: DocumentsViewProps) {
               <tr><th>Title</th><th>Classification</th><th>Chunks</th><th>Ingested</th></tr>
             </thead>
             <tbody>
-              {documents.map((doc) => (
-                <tr key={doc.id} onClick={() => openDocument(doc.id)} className={styles.row}>
-                  <td>{doc.title}</td>
-                  <td><span className={styles.band} data-testid="doc-band">{doc.classification}</span></td>
-                  <td>{doc.chunks}</td>
-                  <td>{new Date(doc.ingestedAt).toLocaleDateString()}</td>
+              {documents.map((d) => (
+                <tr key={d.id} className={styles.clickableRow} onClick={() => openDocument(d.id)}>
+                  <td>{d.title}</td>
+                  <td data-testid="doc-band">{d.classification}</td>
+                  <td>{d.chunks}</td>
+                  <td>{new Date(d.ingestedAt).toLocaleDateString()}</td>
                 </tr>
               ))}
             </tbody>
