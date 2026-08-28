@@ -1,0 +1,26 @@
+{
+  "name": "@mrpl/dsh-workbench-integration-tests",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:*",
+    "@mrpl/dsh-workbench-types": "workspace:*",
+    "@mrpl/dsh-workbench-identity": "workspace:*",
+    "@mrpl/dsh-workbench-policy": "workspace:*",
+    "@mrpl/dsh-workbench-audit": "workspace:*",
+    "@mrpl/dsh-workbench-model-gateway": "workspace:*",
+    "@mrpl/dsh-workbench-rag": "workspace:*",
+    "@mrpl/dsh-workbench-vision": "workspace:*",
+    "@mrpl/dsh-workbench-tool-gateway": "workspace:*",
+    "@mrpl/dsh-workbench-ingestion": "workspace:*",
+    "@mrpl/dsh-workbench-artifacts": "workspace:*",
+    "@deepseek-ai/schemastery": "workspace:*",
+    "vitest": "^3.2.7",
+    "vite-tsconfig-paths": "^5.1.4"
+  }
+}

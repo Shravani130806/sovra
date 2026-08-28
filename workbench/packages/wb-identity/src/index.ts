@@ -24,6 +24,7 @@ import { join } from 'node:path'
 
 import {
   type SessionPrincipalProvider,
+  ConfigurableSessionPrincipalProvider,
   NullSessionPrincipalProvider,
 } from './types.ts'
 import {
@@ -32,6 +33,11 @@ import {
   HeaderSessionPrincipalProvider,
 } from './principal-providers.ts'
 
+export {
+  type SessionPrincipalProvider,
+  ConfigurableSessionPrincipalProvider,
+  NullSessionPrincipalProvider,
+} from './types.ts'
 export {
   EnvSessionPrincipalProvider,
   FileSessionPrincipalProvider,
@@ -77,19 +83,20 @@ export interface Config {
   /**
    * Where an already-authenticated username arrives from.
    *
-   * `wb-identity` shapes the principal the deployment authenticates; it does
-   * not authenticate anyone (§6.1 non-goals). `null` resolves nobody, so
-   * `wb-policy` denies everything — correct as a safe baseline, but it was
-   * previously the only option and not selectable, which meant a real
-   * deployment could not resolve identity at all without patching the plugin.
+   * - `header` — a reverse proxy / SSO layer sets this request header.
+   * - `env`    — one fixed username from an environment variable (for single-operator / demo).
+   * - `file`   — session-to-username JSON map (for integration / automation).
+   * - `null`   — nobody is authenticated (fail-closed baseline; policy denies all).
    */
-  principalSource: 'null' | 'header' | 'env' | 'file'
-  /** Header a reverse proxy stamps the username on, for `header`. */
-  principalHeader: string
-  /** Environment variable naming the single operator, for `env`. */
-  principalEnvVar: string
+  principalSource?: 'null' | 'header' | 'env' | 'file'
+  /** Header name to read when `principalSource: 'header'`. */
+  principalHeader?: string
+  /** Environment variable name to read when `principalSource: 'env'`. */
+  principalEnvVar?: string
   /** Path to a session-id to username JSON map, for `file`. */
-  principalFilePath: string
+  principalFilePath?: string
+  /** Optional default principal username or id (e.g. 'doc-analyst', 'eng-01') */
+  defaultPrincipal?: string
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -99,6 +106,7 @@ export const Config: Schema<Config> = Schema.object({
   principalHeader: Schema.string().default('x-forwarded-user'),
   principalEnvVar: Schema.string().default('WB_PRINCIPAL'),
   principalFilePath: Schema.string().default('$DSH_HOME/workbench/sessions.json'),
+  defaultPrincipal: Schema.string(),
 })
 
 // ---------------------------------------------------------------------------
@@ -205,28 +213,28 @@ export class WbIdentityServiceImpl extends Service implements WbIdentityService 
 export function createPrincipalProvider(config: Config): SessionPrincipalProvider {
   switch (config.principalSource) {
     case 'header':
-      if (!config.principalHeader.trim()) {
+      if (!config.principalHeader?.trim()) {
         throw new Error('wb-identity: principalSource "header" requires principalHeader')
       }
       return new HeaderSessionPrincipalProvider(config.principalHeader)
     case 'env':
-      if (!config.principalEnvVar.trim()) {
+      if (!config.principalEnvVar?.trim()) {
         throw new Error('wb-identity: principalSource "env" requires principalEnvVar')
       }
       return new EnvSessionPrincipalProvider(config.principalEnvVar)
     case 'file':
-      if (!config.principalFilePath.trim()) {
+      if (!config.principalFilePath?.trim()) {
         throw new Error('wb-identity: principalSource "file" requires principalFilePath')
       }
       return new FileSessionPrincipalProvider(
         config.principalFilePath.replace('$DSH_HOME', resolveDshHome()),
       )
     case 'null':
+    default:
+      if (config.defaultPrincipal) {
+        return new ConfigurableSessionPrincipalProvider(config.defaultPrincipal)
+      }
       return new NullSessionPrincipalProvider()
-    default: {
-      const never: never = config.principalSource
-      throw new Error(`wb-identity: unknown principalSource ${String(never)}`)
-    }
   }
 }
 
@@ -244,5 +252,6 @@ export function apply(ctx: Context, config: Config): void {
     )
   }
 
-  new WbIdentityServiceImpl(ctx, directory, createPrincipalProvider(config))
+  const principalProvider = createPrincipalProvider(config)
+  new WbIdentityServiceImpl(ctx, directory, principalProvider)
 }

@@ -3,21 +3,21 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Frozen shared TypeScript contract for the Sovereign AI Workbench plugins (see workbench/DESIGN.md \u00a77). No Cordis plugin export, no runtime dependency beyond plain TypeScript.",
+  "description": "Frozen shared TypeScript contract for the Sovereign AI Workbench plugins (see workbench/DESIGN.md §7). No Cordis plugin export, no runtime dependency beyond plain TypeScript.",
   "main": "lib/index.js",
-  "types": "lib/types/index.d.ts",
+  "types": "lib/index.d.ts",
   "exports": {
     ".": {
-      "types": "./lib/types/index.d.ts",
+      "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     }
   },
   "files": [
     "lib/index.js",
-    "lib/types/**/*.d.ts"
+    "lib/**/*.d.ts"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && tsdown",
+    "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   }
 }
