@@ -192,3 +192,10 @@
   font-size: 13px;
   background: var(--wb-surface, #1c2024);
 }
+
+.qualifier {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--wb-text-muted, #93a3ae);
+}

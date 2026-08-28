@@ -298,4 +298,99 @@ describe('wb-audit plugin', () => {
     // rather than inventing one.
     expect(results[0]!.sessionId).toBe('unattributed')
   })
+
+describe('live subscription and bounded reads', () => {
+  it('a subscriber sees each entry as it is recorded', async () => {
+    await ctx.plugin(WbAuditService, { root: auditRoot })
+    const seen: string[] = []
+    ctx.wbAudit.subscribe((entry) => seen.push(entry.kind))
+    ctx.wbAudit.record({
+      sessionId: asWbSessionId('s1'), userId: asWbUserId('u1'),
+      kind: 'policy_decision', summary: 'ALLOW read', payload: {},
+    })
+    expect(seen).toEqual(['policy_decision'])
+  })
+
+  it('unsubscribe stops delivery', async () => {
+    await ctx.plugin(WbAuditService, { root: auditRoot })
+    let count = 0
+    const off = ctx.wbAudit.subscribe(() => count++)
+    off()
+    ctx.wbAudit.record({
+      sessionId: asWbSessionId('s1'), userId: asWbUserId('u1'),
+      kind: 'session_event', summary: 'x', payload: {},
+    })
+    expect(count).toBe(0)
+  })
+
+  it('a throwing subscriber does not break the write or the other subscribers', async () => {
+    // The append already succeeded by the time subscribers run; a bad
+    // listener must not lose the entry or starve the good ones.
+    await ctx.plugin(WbAuditService, { root: auditRoot })
+    const seen: string[] = []
+    ctx.wbAudit.subscribe(() => { throw new Error('bad subscriber') })
+    ctx.wbAudit.subscribe((entry) => seen.push(entry.summary))
+    expect(() => ctx.wbAudit.record({
+      sessionId: asWbSessionId('s1'), userId: asWbUserId('u1'),
+      kind: 'tool_result', summary: 'still recorded', payload: {},
+    })).not.toThrow()
+    expect(seen).toEqual(['still recorded'])
+    expect(ctx.wbAudit.query({ kind: 'tool_result' })).toHaveLength(1)
+  })
+
+  it('query returns newest first', async () => {
+    await ctx.plugin(WbAuditService, { root: auditRoot })
+    for (const summary of ['first', 'second', 'third']) {
+      ctx.wbAudit.record({
+        sessionId: asWbSessionId('s1'), userId: asWbUserId('u1'),
+        kind: 'policy_decision', summary, payload: {},
+      })
+      await new Promise((r) => setTimeout(r, 2))
+    }
+    const entries = ctx.wbAudit.query({ kind: 'policy_decision' })
+    expect(entries[0]!.summary).toBe('third')
+  })
+
+  it('limit caps the NEWEST entries, not the oldest', async () => {
+    // Capping the oldest would show a live feed frozen at the first rows
+    // ever written — the failure that makes a bounded read worse than none.
+    await ctx.plugin(WbAuditService, { root: auditRoot })
+    for (const summary of ['old', 'middle', 'newest']) {
+      ctx.wbAudit.record({
+        sessionId: asWbSessionId('s1'), userId: asWbUserId('u1'),
+        kind: 'policy_decision', summary, payload: {},
+      })
+      await new Promise((r) => setTimeout(r, 2))
+    }
+    const entries = ctx.wbAudit.query({ kind: 'policy_decision', limit: 1 })
+    expect(entries).toHaveLength(1)
+    expect(entries[0]!.summary).toBe('newest')
+  })
+
+  it('since excludes anything older than the given instant', async () => {
+    await ctx.plugin(WbAuditService, { root: auditRoot })
+    ctx.wbAudit.record({
+      sessionId: asWbSessionId('s1'), userId: asWbUserId('u1'),
+      kind: 'policy_decision', summary: 'before', payload: {},
+    })
+    await new Promise((r) => setTimeout(r, 5))
+    const cutoff = new Date().toISOString()
+    await new Promise((r) => setTimeout(r, 5))
+    ctx.wbAudit.record({
+      sessionId: asWbSessionId('s1'), userId: asWbUserId('u1'),
+      kind: 'policy_decision', summary: 'after', payload: {},
+    })
+    const entries = ctx.wbAudit.query({ since: cutoff })
+    expect(entries.map((e) => e.summary)).toEqual(['after'])
+  })
+
+  it('an empty filter still reads everything', async () => {
+    await ctx.plugin(WbAuditService, { root: auditRoot })
+    ctx.wbAudit.record({
+      sessionId: asWbSessionId('s1'), userId: asWbUserId('u1'),
+      kind: 'rag_retrieval', summary: 'r', payload: {},
+    })
+    expect(ctx.wbAudit.query({})).toHaveLength(1)
+  })
+})
 })

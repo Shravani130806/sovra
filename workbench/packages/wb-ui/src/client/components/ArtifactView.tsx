@@ -1,8 +1,8 @@
-import { useMockArtifacts } from '../mock/index.ts'
+import { useSessionArtifacts } from '../live/hooks.ts'
 import styles from './ArtifactView.module.css'
 
 export function ArtifactView() {
-  const artifacts = useMockArtifacts()
+  const artifacts = useSessionArtifacts()
 
   if (artifacts.length === 0) return null
 
@@ -13,13 +13,11 @@ export function ArtifactView() {
         {artifacts.map((art) => (
           <div key={art.id} className={styles.card}>
             <div className={styles.header}>
-              <span className={styles.typeBadge}>{art.type.replace('_', ' ')}</span>
+              <span className={styles.typeBadge}>{art.kind.replace('_', ' ')}</span>
               {art.isLocal && <span className={styles.localBadge}>Local</span>}
             </div>
             <div className={styles.filename}>{art.filename}</div>
             <div className={styles.meta}>
-              <span className={styles.status}>{art.status}</span>
-              <span className={styles.dot}>•</span>
               <span className={styles.sources}>{art.sourceCount} sources</span>
             </div>
             <div className={styles.actions}>

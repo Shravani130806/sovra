@@ -1,6 +1,7 @@
 import type { DetailsOwnerProps } from '@deepseek-ai/dsh-client-ui-layout/client'
 import styles from './DetailsRoot.module.css'
-import { useSovereignActivity, useNavigation } from '../mock/index.ts'
+import { useSovereignActivity } from '../live/hooks.ts'
+import { useNavigation } from '../mock/index.ts'
 
 export function DetailsRoot(_props: DetailsOwnerProps) {
   const { activityLog, isLoading } = useSovereignActivity()
