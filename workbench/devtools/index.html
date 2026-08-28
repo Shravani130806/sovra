@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workbench Plugin Probe</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --ink: #14171a; --muted: #5c6673;
+    --line: #e2e6ea; --accent: #1a5fb4; --ok: #1a7f4b; --bad: #b3261e;
+    --code-bg: #f2f4f6;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a; --panel: #1c2024; --ink: #e6e9ec; --muted: #9aa4b0;
+      --line: #2c3238; --accent: #78aaf0; --ok: #5fd39a; --bad: #f28c86;
+      --code-bg: #23282e;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1.5; overflow-x: hidden; }
+  header { padding: 18px 24px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  h1 { margin: 0 0 4px; font-size: 17px; }
+  header p { margin: 0; color: var(--muted); font-size: 13px; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px 24px 60px; display: grid; gap: 18px; min-width: 0; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; min-width: 0; }
+  h2 { margin: 0 0 10px; font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  label { display: block; font-weight: 600; margin: 10px 0 4px; font-size: 13px; }
+  input, textarea, select, button {
+    font: inherit; color: var(--ink); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; width: 100%;
+  }
+  textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; min-height: 72px; resize: vertical; }
+  button {
+    background: var(--accent); color: #fff; border: none; font-weight: 600;
+    cursor: pointer; width: auto; padding: 8px 16px; margin-top: 12px;
+  }
+  button:hover { filter: brightness(1.1); }
+  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); padding: 5px 10px; margin: 0 6px 6px 0; font-size: 12.5px; font-weight: 500; }
+  /* Long JSON must scroll inside its own box, never widen the page. */
+  pre { background: var(--code-bg); border-radius: 6px; padding: 12px; overflow-x: auto; font-size: 12.5px; margin: 10px 0 0; max-width: 100%; white-space: pre-wrap; word-break: break-word; }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; }
+  .scroll { overflow-x: auto; }
+  .row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
+  .pill { display: inline-block; padding: 1px 7px; border-radius: 20px; font-size: 11.5px; font-weight: 600; }
+  .pill.local { background: #1a7f4b22; color: var(--ok); }
+  .pill.enterprise { background: #b5720022; color: #b57200; }
+  .pill.external { background: #b3261e22; color: var(--bad); }
+  .ok { color: var(--ok); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .hint { color: var(--muted); font-size: 12.5px; margin: 6px 0 0; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; min-width: 0; }
+  .cols > div { min-width: 0; }
+  @media (max-width: 820px) { .cols { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Workbench Plugin Probe</h1>
+  <p>Live <code>wb-tool-gateway</code> and <code>wb-vision</code> mounted on a real Cordis context and the real tool registry. Only the vision model is faked — you supply its reply below.</p>
+</header>
+
+<main>
+  <section>
+    <h2>1 · Manifest directory (wb-tool-gateway)</h2>
+    <p class="hint">Everything <code>wb-policy</code> can see. Keyed on <strong>registered tool names</strong> — the strings that reach <code>tools/pre-execute</code>.</p>
+    <div class="scroll"><table id="manifest-table"><tbody><tr><td>loading…</td></tr></tbody></table></div>
+  </section>
+
+  <section>
+    <h2>2 · Manifest lookup — what wb-policy asks on every call</h2>
+    <div class="row">
+      <div>
+        <label for="lookup">Tool id</label>
+        <input id="lookup" value="read" spellcheck="false">
+      </div>
+      <button id="lookup-go">Look up</button>
+    </div>
+    <p class="hint">Try the traps: <code>read</code> resolves, but <code>dsh-tool-fs</code> and <code>tool-fs</code> are package names and must not.</p>
+    <div>
+      <button class="ghost" data-lookup="read">read</button>
+      <button class="ghost" data-lookup="bash">bash</button>
+      <button class="ghost" data-lookup="web_search">web_search</button>
+      <button class="ghost" data-lookup="wb_ocr_extract">wb_ocr_extract</button>
+      <button class="ghost" data-lookup="dsh-tool-fs">dsh-tool-fs</button>
+      <button class="ghost" data-lookup="tool-fs">tool-fs</button>
+      <button class="ghost" data-lookup="never_registered">never_registered</button>
+    </div>
+    <pre id="lookup-out">—</pre>
+  </section>
+
+  <section>
+    <h2>3 · Run a real tool call (wb-vision)</h2>
+    <div class="cols">
+      <div>
+        <label for="tool">Tool</label>
+        <select id="tool">
+          <option value="wb_ocr_extract">wb_ocr_extract</option>
+          <option value="wb_vision_analyze">wb_vision_analyze</option>
+        </select>
+        <label for="question">Question <span class="hint">(wb_vision_analyze only)</span></label>
+        <input id="question" value="what equipment is connected to pump P-101?" spellcheck="false">
+        <label for="image">Image (base64)</label>
+        <textarea id="image" spellcheck="false"></textarea>
+      </div>
+      <div>
+        <label for="reply">Faked model reply</label>
+        <textarea id="reply" spellcheck="false"></textarea>
+        <p class="hint">Presets:</p>
+        <div>
+          <button class="ghost" data-preset="ocr">good OCR</button>
+          <button class="ghost" data-preset="found">finding</button>
+          <button class="ghost" data-preset="nofind">no finding</button>
+          <button class="ghost" data-preset="prose">prose (should error)</button>
+        </div>
+      </div>
+    </div>
+    <button id="run">Run through the real registry</button>
+    <p class="hint">Also try clearing the image field, or typing junk into it, to check the malformed-input paths.</p>
+    <pre id="run-out">—</pre>
+  </section>
+</main>
+
+<script>
+const PNG_1X1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+const PRESETS = {
+  ocr: JSON.stringify({ text: 'PUMP P-101\nSUCTION 6"', blocks: [{ text: 'PUMP P-101', box: [0.1, 0.2, 0.3, 0.05], confidence: 0.94 }] }, null, 2),
+  found: JSON.stringify({ answered: true, findings: [{ summary: 'P-101 discharges to vessel V-200', box: [0.4, 0.3, 0.2, 0.1], confidence: 0.81 }] }, null, 2),
+  nofind: JSON.stringify({ answered: false, findings: [], reason: 'the connection is not visible in this crop' }, null, 2),
+  prose: 'I think it says PUMP P-101, roughly.',
+};
+
+const $ = (id) => document.getElementById(id);
+$('image').value = PNG_1X1;
+$('reply').value = PRESETS.ocr;
+
+async function loadManifests() {
+  const data = await (await fetch('/api/manifests')).json();
+  const rows = data.manifests.map((m) => `
+    <tr>
+      <td><code>${m.toolId}</code></td>
+      <td><span class="pill ${m.riskLevel}">${m.riskLevel}</span></td>
+      <td>${m.dataClassificationCeiling}</td>
+      <td>${m.networkAccess}</td>
+      <td>${m.requiredPermissions.join(', ') || '—'}</td>
+    </tr>`).join('');
+  $('manifest-table').innerHTML =
+    `<thead><tr><th>tool</th><th>risk</th><th>ceiling</th><th>network</th><th>permissions</th></tr></thead><tbody>${rows}</tbody>`;
+}
+
+async function lookup(toolId) {
+  $('lookup').value = toolId;
+  const data = await (await fetch('/api/manifest?toolId=' + encodeURIComponent(toolId))).json();
+  const verdict = data.manifest
+    ? '<span class="ok">manifest found</span>'
+    : '<span class="bad">no manifest</span>';
+  $('lookup-out').innerHTML = verdict + '\n' + JSON.stringify(data, null, 2);
+}
+
+async function run() {
+  const name = $('tool').value;
+  const args = { image: $('image').value, mediaType: 'image/png' };
+  if (name === 'wb_vision_analyze') args.question = $('question').value;
+  $('run-out').textContent = 'running…';
+  const data = await (await fetch('/api/tool', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name, arguments: args, modelReply: $('reply').value }),
+  })).json();
+  const head = data.isError
+    ? '<span class="bad">isError: true</span>'
+    : '<span class="ok">isError: false</span>';
+  $('run-out').innerHTML = head + `  ·  capability resolved: <code>${(data.resolvedCapabilities || []).join(', ') || 'none'}</code>  ·  ${data.ms}ms\n\n`
+    + JSON.stringify(data, null, 2);
+}
+
+$('lookup-go').onclick = () => lookup($('lookup').value);
+$('run').onclick = run;
+document.querySelectorAll('[data-lookup]').forEach((b) => b.onclick = () => lookup(b.dataset.lookup));
+document.querySelectorAll('[data-preset]').forEach((b) => b.onclick = () => {
+  $('reply').value = PRESETS[b.dataset.preset];
+  $('tool').value = b.dataset.preset === 'ocr' ? 'wb_ocr_extract' : 'wb_vision_analyze';
+});
+
+loadManifests();
+lookup('read');
+</script>
+</body>
+</html>

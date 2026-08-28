@@ -1,0 +1,24 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "lib/types" },
+  "references": [
+    { "path": "../../../vendor/cosmokit" },
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/schemastery" },
+    { "path": "../wb-types" },
+    { "path": "../../../packages/core/tools" },
+    { "path": "../../../packages/core/session" },
+    { "path": "../../../packages/core/agent" },
+    { "path": "../../../packages/core/scope" },
+    { "path": "../../../packages/core/system-prompt" },
+    { "path": "../../../packages/llm/llm" },
+    { "path": "../../../packages/interaction/user-approval" },
+    { "path": "../../../packages/code-runtime/code-runtime" },
+    { "path": "../../../packages/typert/protocol" },
+    { "path": "../../../packages/util/brand" },
+    { "path": "../../../packages/util/timeout" },
+    { "path": "../../../packages/attachment/attachment" },
+    { "path": "../../../packages/runtime-diagnostics/invariants" }
+  ],
+  "include": ["src"]
+}

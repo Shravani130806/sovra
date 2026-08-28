@@ -1,0 +1,37 @@
+{
+  "name": "@mrpl/dsh-workbench-audit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Append-only provenance log of every decision + tool call for the Sovereign AI Workbench",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/types/**/*.d.ts"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsdown",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "oxlint src",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@mrpl/dsh-workbench-types": "workspace:*",
+    "@deepseek-ai/schemastery": "workspace:*"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:*",
+    "@deepseek-ai/dsh-session": "workspace:*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:*",
+    "@deepseek-ai/dsh-session": "workspace:*"
+  }
+}

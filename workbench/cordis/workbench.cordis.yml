@@ -1,0 +1,68 @@
+# workbench/cordis/workbench.cordis.yml
+#
+# Stacks the Sovereign AI Workbench over dsh-base (packages/bundle/base).
+# This is a bundle in the harness sense (docs/architecture.md § Profiles and
+# bundles): it lists Cordis config rows that a profile's `cordis.patch.yml`
+# layers can still patch by id. See workbench/DESIGN.md §8 for the narrative
+# and workbench/AGENTS.md for how each row's plugin was built.
+#
+# Load order matters: wb-identity and wb-policy must mount before anything
+# that calls ctx.wbPolicy.evaluate(...) or reads ctx.wbIdentity.current(...).
+# wb-types has no plugin export (no `name`/`inject`/`apply`) — it contributes
+# no row here, only compile-time types consumed by the packages below.
+
+- id: wb-identity
+  name: '@mrpl/dsh-workbench-identity'
+  config:
+    userDirectory: file
+    userDirectoryPath: '$DSH_HOME/workbench/users.yaml'
+
+- id: wb-policy
+  name: '@mrpl/dsh-workbench-policy'
+  config:
+    # Defaults to the classification x capability matrix in DESIGN.md §5;
+    # this file lets an MRPL admin override it per role without a rebuild.
+    matrix: '$DSH_HOME/workbench/policy-matrix.yaml'
+
+- id: wb-audit
+  name: '@mrpl/dsh-workbench-audit'
+  config:
+    root: '$DSH_HOME/workbench/audit'
+
+- id: wb-model-gateway
+  name: '@mrpl/dsh-workbench-model-gateway'
+  config:
+    # capability -> the mounted llm-*/embedding-*/reranker-* cordis.yml `id`
+    # it resolves to. Adding a new open-weight model is one new row in the
+    # base bundle plus one line here — never a code change (DESIGN.md §6.4).
+    routing:
+      reasoning: llm-deepseek
+      vision_reasoning: llm-vision-local
+      embedding: embedding-local
+      rerank: reranker-local
+      ocr: llm-vision-local
+
+- id: wb-tool-gateway
+  name: '@mrpl/dsh-workbench-tool-gateway'
+
+- id: wb-vision
+  name: '@mrpl/dsh-workbench-vision'
+
+- id: wb-ingestion
+  name: '@mrpl/dsh-workbench-ingestion'
+
+- id: wb-rag
+  name: '@mrpl/dsh-workbench-rag'
+  config:
+    indexPath: '$DSH_HOME/workbench/vector-index'
+
+- id: wb-artifacts
+  name: '@mrpl/dsh-workbench-artifacts'
+
+# wb-ui and wb-admin-console are client plugins and mount under the harness's
+# web profile (dsh-web-app), not in this backend bundle — see
+# packages/client/AGENTS.md in this repo and workbench/DESIGN.md §6.10-6.11.
+#
+# wb-presets is not mounted here at all: a preset is selected per session,
+# e.g. `dsh --profile web --preset document-analyst`, mirroring the harness's
+# own packages/preset mechanism. See cordis/presets/ in this directory.
