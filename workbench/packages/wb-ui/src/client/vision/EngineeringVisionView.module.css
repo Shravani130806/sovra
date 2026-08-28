@@ -1,0 +1,151 @@
+.container {
+  display: flex;
+  height: 100%;
+  background: var(--wb-bg-app);
+}
+
+.viewerPane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.viewerHeader {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--wb-border-subtle);
+  background: var(--wb-bg-surface);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.title {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: var(--wb-text-primary);
+  margin: 0;
+}
+
+.drawingArea {
+  flex: 1;
+  background: #e5e5e5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.mockDrawing {
+  width: 80%;
+  height: 80%;
+  background: white;
+  border: 1px solid #ccc;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.boundingBox {
+  position: absolute;
+  border: 2px solid var(--wb-color-approval);
+  background: rgba(245, 158, 11, 0.1);
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.boundingBox:hover {
+  background: rgba(245, 158, 11, 0.3);
+}
+
+.boxLabel {
+  background: var(--wb-color-approval);
+  color: white;
+  font-size: 0.7rem;
+  font-weight: bold;
+  padding: 0.1rem 0.3rem;
+  position: absolute;
+  top: -1.2rem;
+  left: -2px;
+}
+
+.findingsPane {
+  width: 350px;
+  background: var(--wb-bg-surface);
+  border-left: 1px solid var(--wb-border-subtle);
+  display: flex;
+  flex-direction: column;
+}
+
+.findingsHeader {
+  padding: 1rem;
+  border-bottom: 1px solid var(--wb-border-subtle);
+}
+
+.findingsHeader h3 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1rem;
+  color: var(--wb-text-primary);
+}
+
+.findingsHeader p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--wb-text-secondary);
+}
+
+.findingsList {
+  flex: 1;
+  padding: 1rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.findingCard {
+  background: var(--wb-bg-app);
+  border: 1px solid var(--wb-border-strong);
+  border-radius: 6px;
+  padding: 1rem;
+}
+
+.findingHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.findingHeader h4 {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--wb-text-primary);
+}
+
+.confidenceBadge {
+  background: var(--wb-color-sovereign-bg);
+  color: var(--wb-color-sovereign);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.confidenceMedium {
+  background: var(--wb-color-approval-bg);
+  color: var(--wb-color-approval);
+}
+
+.findingBody p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--wb-text-secondary);
+  line-height: 1.4;
+}

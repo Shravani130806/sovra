@@ -1,0 +1,68 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: var(--wb-bg-app);
+  color: var(--wb-text-primary);
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.header {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--wb-border-subtle);
+}
+
+.header h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--wb-text-primary);
+}
+
+.section {
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--wb-border-subtle);
+}
+
+.sectionHeader {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--wb-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 1rem;
+}
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.event {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  position: relative;
+  padding-left: 1rem;
+  border-left: 2px solid var(--wb-border-strong);
+}
+
+.eventTime {
+  font-size: 0.75rem;
+  color: var(--wb-text-secondary);
+}
+
+.eventSummary {
+  font-size: 0.85rem;
+  color: var(--wb-text-primary);
+  line-height: 1.4;
+}
+
+.loading {
+  font-size: 0.85rem;
+  color: var(--wb-text-secondary);
+  font-style: italic;
+}

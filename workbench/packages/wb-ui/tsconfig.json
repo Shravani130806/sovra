@@ -1,0 +1,15 @@
+{
+  "extends": "../../../tsconfig.base.client.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../../packages/client/ui-slots" },
+    { "path": "../../../packages/client/ui-layout" },
+    { "path": "../../../packages/client/runtime" },
+    { "path": "../wb-types" }
+  ]
+}

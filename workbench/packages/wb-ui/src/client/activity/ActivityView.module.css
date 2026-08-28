@@ -1,0 +1,81 @@
+.container {
+  padding: 2rem;
+  max-width: 1000px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.header {
+  margin-bottom: 2rem;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: var(--wb-text-primary);
+}
+
+.header p {
+  margin: 0.5rem 0 0 0;
+  color: var(--wb-text-secondary);
+}
+
+.tableContainer {
+  background: var(--wb-bg-surface);
+  border: 1px solid var(--wb-border-subtle);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.table th,
+.table td {
+  padding: 1rem;
+  border-bottom: 1px solid var(--wb-border-subtle);
+  font-size: 0.85rem;
+}
+
+.table th {
+  color: var(--wb-text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.75rem;
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.table tbody tr:hover {
+  background-color: var(--wb-bg-surface-hover);
+}
+
+.status {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.statusSuccess {
+  background: var(--wb-color-sovereign-bg);
+  color: var(--wb-color-sovereign);
+}
+
+.statusWarning {
+  background: var(--wb-color-approval-bg);
+  color: var(--wb-color-approval);
+}
+
+.statusError {
+  background: var(--wb-color-blocked-bg);
+  color: var(--wb-color-blocked);
+}

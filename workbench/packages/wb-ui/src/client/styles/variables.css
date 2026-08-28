@@ -1,0 +1,23 @@
+:root {
+  /* Enterprise Colors */
+  --wb-bg-app: #141414;
+  --wb-bg-surface: #1e1e1e;
+  --wb-bg-surface-hover: #2a2a2a;
+  
+  --wb-border-subtle: #333333;
+  --wb-border-strong: #444444;
+  
+  --wb-text-primary: #ffffff;
+  --wb-text-secondary: #999999;
+  --wb-text-muted: #666666;
+  
+  --wb-color-sovereign: #10b981;
+  --wb-color-sovereign-bg: rgba(16, 185, 129, 0.1);
+  --wb-color-blocked: #ef4444;
+  --wb-color-blocked-bg: rgba(239, 68, 68, 0.1);
+  --wb-color-approval: #f59e0b;
+  --wb-color-approval-bg: rgba(245, 158, 11, 0.1);
+  
+  /* Focus Rings */
+  --wb-focus-ring: 0 0 0 2px rgba(16, 185, 129, 0.4);
+}
