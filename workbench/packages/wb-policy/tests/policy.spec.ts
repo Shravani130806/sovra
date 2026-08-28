@@ -22,6 +22,9 @@ import WbPolicyService from '../src/index.ts'
 // Test helpers
 // ---------------------------------------------------------------------------
 
+/** The session every hand-built request in these tests belongs to. */
+const TEST_SESSION = 'test-session'
+
 function createMockUser(overrides: Partial<WbUser> = {}): WbUser {
   return {
     id: asWbUserId('test-user'),
@@ -168,6 +171,7 @@ describe('wb-policy plugin', () => {
 
           const request: WbPolicyRequest = {
             user: asWbUserId('test-user'),
+            sessionId: asWbSessionId('test-session'),
             agentPreset: 'document-analyst',
             action,
             classification,
@@ -222,6 +226,7 @@ describe('wb-policy plugin', () => {
 
           const request: WbPolicyRequest = {
             user: asWbUserId('test-user'),
+            sessionId: asWbSessionId('test-session'),
             agentPreset: 'document-analyst',
             action,
             classification: 'PUBLIC',
@@ -245,39 +250,48 @@ describe('wb-policy plugin', () => {
   })
 
   describe('tools/pre-execute integration', () => {
-    it('DENY decision prevents tool execution', async () => {
+    it('denies a call with no resolvable principal, rather than skipping the check', async () => {
+      // Invariant 1: every tool call must be reachable by the policy check.
+      // An exec with no session used to be evaluated as user 'unknown' with a
+      // hardcoded PUBLIC classification, which allowed it.
       ctx.provide('wbIdentity', createMockIdentityService())
       ctx.provide('wbToolGateway', createMockToolGateway())
       await ctx.plugin(WbPolicyService)
 
-      // Directly evaluate with RESTRICTED classification to get DENY from the matrix
-      const request: WbPolicyRequest = {
-        user: asWbUserId('test-user'),
-        agentPreset: 'document-analyst',
-        action: 'invoke_tool',
-        classification: 'RESTRICTED',
-        destination: 'internet',
-        tool: 'search-tool',
-      }
-
-      const decision = await ctx.wbPolicy.evaluate(request)
-      // RESTRICTED + web_search → DENY
-      expect(decision.decision).toBe('DENY')
-
-      // Verify the waterfall maps DENY to PreToolDecision
       const exec = {
         callId: CallId('test-call'),
         name: 'search-tool',
         arguments: {},
         signal: AbortSignal.timeout(5000),
       }
-      const waterfallResult = await ctx.waterfall('tools/pre-execute', exec, () => Promise.resolve({ kind: 'allow' } as PreToolDecision))
-      // The waterfall result should be 'deny' because the plugin's listener evaluates the tool
-      // and the classification defaults to PUBLIC (from buildRequestFromExecution)
-      expect(waterfallResult.kind).toBe('allow')
+      const result = await ctx.waterfall('tools/pre-execute', exec, () =>
+        Promise.resolve({ kind: 'allow' } as PreToolDecision))
+      expect(result.kind).toBe('deny')
+      expect((result as { reason: string }).reason).toContain('IDENTITY_UNRESOLVED')
     })
 
-    it('ALLOW decision permits tool execution', async () => {
+    it('takes destination from the manifest, not from the tool name', async () => {
+      // search-tool's manifest declares networkAccess 'external', so the call
+      // is evaluated against the internet column even though nothing in its
+      // name says so. A RESTRICTED-ceiling tool over the internet is DENY.
+      ctx.provide('wbIdentity', createMockIdentityService())
+      ctx.provide('wbToolGateway', createMockToolGateway())
+      await ctx.plugin(WbPolicyService)
+
+      const exec = {
+        callId: CallId('test-call'),
+        name: 'search-tool',
+        arguments: {},
+        agent: { session: { id: TEST_SESSION } },
+        signal: AbortSignal.timeout(5000),
+      }
+      const result = await ctx.waterfall('tools/pre-execute', exec, () =>
+        Promise.resolve({ kind: 'allow' } as PreToolDecision))
+      expect(result.kind).toBe('deny')
+    })
+
+    it('allows a local tool for a cleared principal', async () => {
+      // test-tool's manifest is networkAccess 'none' -> destination 'local'.
       ctx.provide('wbIdentity', createMockIdentityService())
       ctx.provide('wbToolGateway', createMockToolGateway())
       await ctx.plugin(WbPolicyService)
@@ -286,10 +300,11 @@ describe('wb-policy plugin', () => {
         callId: CallId('test-call'),
         name: 'test-tool',
         arguments: {},
+        agent: { session: { id: TEST_SESSION } },
         signal: AbortSignal.timeout(5000),
       }
-
-      const decision = await ctx.waterfall('tools/pre-execute', exec, () => Promise.resolve({ kind: 'allow' } as PreToolDecision))
+      const decision = await ctx.waterfall('tools/pre-execute', exec, () =>
+        Promise.resolve({ kind: 'allow' } as PreToolDecision))
       expect(decision.kind).toBe('allow')
     })
   })
@@ -307,6 +322,7 @@ describe('wb-policy plugin', () => {
 
       const request: WbPolicyRequest = {
         user: asWbUserId('test-user'),
+        sessionId: asWbSessionId('test-session'),
         agentPreset: 'document-analyst',
         action: 'invoke_tool',
         classification: 'PUBLIC',
@@ -332,6 +348,7 @@ describe('wb-policy plugin', () => {
 
       const request: WbPolicyRequest = {
         user: asWbUserId('test-user'),
+        sessionId: asWbSessionId('test-session'),
         agentPreset: 'document-analyst',
         action: 'invoke_tool',
         classification: 'RESTRICTED',
@@ -353,6 +370,7 @@ describe('wb-policy plugin', () => {
 
       const request: WbPolicyRequest = {
         user: asWbUserId('test-user'),
+        sessionId: asWbSessionId('test-session'),
         agentPreset: 'document-analyst',
         action: 'invoke_tool',
         classification: 'CONFIDENTIAL',
@@ -380,6 +398,7 @@ describe('wb-policy plugin', () => {
 
       const request: WbPolicyRequest = {
         user: asWbUserId('test-user'),
+        sessionId: asWbSessionId('test-session'),
         agentPreset: 'document-analyst',
         action: 'invoke_tool',
         classification: 'CONFIDENTIAL',
@@ -415,6 +434,7 @@ describe('wb-policy plugin', () => {
 
       const request: WbPolicyRequest = {
         user: asWbUserId('test-user'),
+        sessionId: asWbSessionId('test-session'),
         agentPreset: 'document-analyst',
         action: 'invoke_tool',
         classification: 'PUBLIC',

@@ -3,6 +3,8 @@ import z from '@deepseek-ai/schemastery'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import {
   asWbAuditEntryId,
+  asWbSessionId,
+  asWbUserId,
   type WbAuditEntry,
   type WbAuditEntryId,
   type WbIdentityService,
@@ -15,6 +17,11 @@ import {
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as crypto from 'node:crypto'
+
+/** Session recorded for events §7.4 does not attribute to one. */
+const UNATTRIBUTED_SESSION = asWbSessionId('unattributed')
+/** User recorded for events §7.4 does not attribute to one. */
+const UNATTRIBUTED_USER = asWbUserId('unattributed')
 
 export const name = 'wb-audit'
 
@@ -67,11 +74,17 @@ export class WbAuditService extends Service {
 
     // Subscribe to workbench events
     ctx.effect(() => {
-      const unsubPolicy = ctx.on('wb/policy/decision', (_event) => {
-        // Gap: policy decision events lack sessionId and userId in payload.
-        // Skip recording until gap is resolved (see README.md Deviations).
-        // For now, we cannot produce a valid WbAuditEntry.
-        // TODO: implement when DESIGN.md §12 gap is resolved.
+      const unsubPolicy = ctx.on('wb/policy/decision', (event) => {
+        // Every decision, ALLOW included: §9 invariant 4 makes a positive
+        // decision as observable as a negative one, and "why did this answer
+        // happen?" is unanswerable without the allows.
+        this.record({
+          sessionId: event.sessionId,
+          userId: event.user,
+          kind: 'policy_decision',
+          summary: `${event.decision} ${event.action}${event.tool ? ` ${event.tool}` : ''} -> ${event.destination}: ${event.reason}`,
+          payload: event as unknown as Record<string, unknown>,
+        })
       })
 
       const unsubRag = ctx.on('wb/rag/retrieved', (event) => {
@@ -86,10 +99,20 @@ export class WbAuditService extends Service {
         })
       })
 
-      const unsubIngestion = ctx.on('wb/ingestion/completed', (_event) => {
-        // Gap: ingestion completed events lack sessionId and userId.
-        // Skip recording until gap is resolved.
-        // TODO: implement when DESIGN.md §12 gap is resolved.
+      const unsubIngestion = ctx.on('wb/ingestion/completed', (event) => {
+        // Ingestion is not session-scoped in §7.4 — the event names a document
+        // and its classification, not who uploaded it. Recording it against an
+        // unattributed session is still worth more than dropping it: the
+        // classification a document entered the corpus with is exactly what a
+        // later "why was this retrievable?" question needs. Attribution needs
+        // §7.4 to carry a session (see DESIGN.md §12).
+        this.record({
+          sessionId: UNATTRIBUTED_SESSION,
+          userId: UNATTRIBUTED_USER,
+          kind: 'ingestion_completed',
+          summary: `document ${event.documentId} ingested as ${event.classification}`,
+          payload: event as unknown as Record<string, unknown>,
+        })
       })
 
       const unsubSession = ctx.on('session/event', (session: Session, event: SessionEvent) => {

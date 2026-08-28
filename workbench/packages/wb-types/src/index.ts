@@ -50,6 +50,16 @@ export interface WbPolicyDecision {
 
 export interface WbPolicyRequest {
   user: WbUserId
+  /**
+   * The session the request belongs to.
+   *
+   * Carried on the request so it reaches `wb/policy/decision` through
+   * `WbPolicyDecisionEvent`, which is what lets `wb-audit` write a decision
+   * entry at all. It is also how a caller that holds only a session (the
+   * `tools/pre-execute` gate) reaches the principal: resolve it through
+   * `WbIdentityService.current(sessionId)` and put that user in `user`.
+   */
+  sessionId: WbSessionId
   agentPreset: string
   action: 'send_data' | 'read_data' | 'invoke_tool' | 'model_request'
   resource?: WbDocumentId | string
@@ -140,7 +150,19 @@ export interface WbModelGatewayService {
 }
 
 export interface WbRagService {
-  retrieve(query: string, user: WbUser): Promise<WbRagResult>
+  /**
+   * Retrieve chunks the user is cleared to see.
+   *
+   * `sessionId` is required because per-chunk authorization goes through
+   * `WbPolicyService.evaluate`, which resolves the principal from the session
+   * — a user id alone cannot be authenticated, and passing one made every
+   * retrieval deny.
+   * @param query - the natural-language query to embed and search.
+   * @param user - the requesting principal.
+   * @param sessionId - the session the retrieval belongs to.
+   * @returns authorized chunks with citations, plus the chunks policy filtered.
+   */
+  retrieve(query: string, user: WbUser, sessionId: WbSessionId): Promise<WbRagResult>
 }
 
 export interface WbVisionService {

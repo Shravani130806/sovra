@@ -11,7 +11,7 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { PreToolDecision } from '@deepseek-ai/dsh-tools'
 import {
-  asWbUserId,
+  asWbSessionId,
   type WbClassification,
   type WbDecisionKind,
   type WbPolicyRequest,
@@ -19,12 +19,42 @@ import {
   type WbPolicyDecisionEvent,
   type WbIdentityService,
   type WbToolGatewayService,
+  type WbToolNetworkAccess,
   type WbUser,
 } from '@mrpl/dsh-workbench-types'
 
 // ---------------------------------------------------------------------------
 // Plugin metadata
 // ---------------------------------------------------------------------------
+
+/** Preset name used when a principal declares none. */
+const UNKNOWN_PRESET = 'unknown'
+
+/**
+ * Map a tool's declared network reach onto the policy destination axis.
+ *
+ * `wb-tool-gateway` is the single source of truth for what a tool can reach,
+ * so the gate reads it instead of matching substrings in the tool's name.
+ * @param access - the manifest's `networkAccess`, or undefined for an
+ *   unmanifested tool.
+ * @returns the destination to evaluate; an unmanifested tool is treated as
+ *   external, the most restrictive column, though it is denied earlier for
+ *   having no manifest at all.
+ */
+function destinationForNetworkAccess(
+  access: WbToolNetworkAccess | undefined,
+): WbPolicyRequest['destination'] {
+  switch (access) {
+    case 'none':
+      return 'local'
+    case 'internal':
+      return 'internal'
+    case 'external':
+      return 'internet'
+    default:
+      return 'external_api'
+  }
+}
 
 export const name = 'wb-policy'
 
@@ -209,8 +239,17 @@ export class WbPolicyService extends Service {
     // Register tools/pre-execute listener
     ctx.effect(() => {
       const unsubscribe = ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
-        // Build a WbPolicyRequest from the tool execution
+        // Build a WbPolicyRequest from the tool execution. No session or no
+        // resolved principal is a denial, never a skipped check: invariant 1
+        // requires every tool call to be reachable by the policy check, and
+        // §6.1 requires identity to have resolved before anything is allowed.
         const request = this.buildRequestFromExecution(exec)
+        if (!request) {
+          return {
+            kind: 'deny',
+            reason: `IDENTITY_UNRESOLVED: no resolved principal for tool "${exec.name}"`,
+          }
+        }
         const decision = await this.evaluate(request)
 
         // Map WbDecisionKind to PreToolDecision
@@ -226,13 +265,21 @@ export class WbPolicyService extends Service {
 
           case 'ALLOW_WITH_REDACTION':
           case 'ALLOW_METADATA_ONLY':
-            // These require direct evaluate() calls by components capable of
-            // enforcing those restrictions (e.g., RAG/data layer).
-            // For the pre-execute hook, treat as allow with a note.
-            return next()
+            // Deny rather than pass through. A pre-execution gate cannot redact
+            // a result it has not seen, and running the call unmodified would
+            // make a STRICTER matrix setting behave as the loosest one — the
+            // one outcome that misleads whoever configured it. Callers able to
+            // enforce these (wb-rag, the data layer) reach them through a
+            // direct evaluate(), which is unaffected.
+            return {
+              kind: 'deny',
+              reason:
+                `${decision.reason} (${decision.decision} cannot be enforced on a tool call; ` +
+                'the tool gate has no result to redact)',
+            }
 
           default:
-            return next()
+            return { kind: 'deny', reason: `unrecognised policy decision for tool "${exec.name}"` }
         }
       })
 
@@ -260,11 +307,26 @@ export class WbPolicyService extends Service {
       return decision
     }
 
-    const user = identityService.current(request.user as any)
+    // Keyed by SESSION, per §7.3. Passing `request.user` here (behind a cast)
+    // made every caller that supplies a real user id — wb-rag does — miss the
+    // lookup and be denied, which silently emptied every retrieval.
+    const user = identityService.current(request.sessionId)
     if (!user) {
       const decision: WbPolicyDecision = {
         decision: 'DENY',
-        reason: `IDENTITY_UNRESOLVED: user ${request.user} not found`,
+        reason: `IDENTITY_UNRESOLVED: no principal resolved for session ${request.sessionId}`,
+      }
+      this.emitDecision(request, decision)
+      return decision
+    }
+
+    if (user.id !== request.user) {
+      // The request names a different principal than the session resolves to.
+      // Evaluating the session's clearance against another user's request
+      // would authorize the wrong person, so refuse instead of picking one.
+      const decision: WbPolicyDecision = {
+        decision: 'DENY',
+        reason: `IDENTITY_MISMATCH: session ${request.sessionId} resolves to ${user.id}, not ${request.user}`,
       }
       this.emitDecision(request, decision)
       return decision
@@ -349,75 +411,53 @@ export class WbPolicyService extends Service {
   /**
    * Build a WbPolicyRequest from a tool execution.
    */
-  private buildRequestFromExecution(exec: { name: string; arguments: unknown; agent?: { session?: { id: string } } }): WbPolicyRequest {
-    // Default to most restrictive classification for unclassified tool calls
-    const classification: WbClassification = 'PUBLIC'
+  /**
+   * Build a {@link WbPolicyRequest} from one tool execution.
+   *
+   * Resolves the session's principal through `ctx.wbIdentity` rather than
+   * putting the session id in `user`: `user` is a {@link WbUserId} by §7.2, and
+   * crossing the two made every caller that passes a real user id (`wb-rag`)
+   * miss the identity lookup and be denied.
+   *
+   * `classification` and `destination` come from the tool's manifest, not from
+   * its name. §6.7 exists so this gate reads structured metadata instead of
+   * guessing, and a name heuristic disagrees with the manifest in practice —
+   * `bash` reads as "local" by name while its manifest declares external
+   * network reach.
+   * @param exec - the pending tool call.
+   * @returns the request to evaluate; `undefined` when no session is attached,
+   *   which the caller must treat as a denial rather than a skipped check.
+   */
+  private buildRequestFromExecution(
+    exec: { name: string; arguments: unknown; agent?: { session?: { id: string } } },
+  ): WbPolicyRequest | undefined {
+    const rawSessionId = exec.agent?.session?.id
+    if (!rawSessionId) return undefined
+    const sessionId = asWbSessionId(rawSessionId)
 
-    // Determine destination from tool name heuristics
-    const destination = this.inferDestination(exec.name)
+    const identity = this.ctx.get('wbIdentity') as WbIdentityService | undefined
+    const user = identity?.current(sessionId)
+    if (!user) return undefined
 
-    // Determine action from tool name
-    const action = this.inferAction(exec.name)
+    const manifest = (this.ctx.get('wbToolGateway') as WbToolGatewayService | undefined)?.getManifest(
+      exec.name,
+    )
 
     return {
-      user: asWbUserId(exec.agent?.session?.id ?? 'unknown'),
-      agentPreset: 'unknown',
-      action,
-      classification,
-      destination,
+      user: user.id,
+      sessionId,
+      agentPreset: user.allowedAgentPresets[0] ?? UNKNOWN_PRESET,
+      action: 'invoke_tool',
+      // The highest band this tool may touch. Without a resolved document
+      // argument this is the conservative reading of what the call could
+      // reach; the previous constant 'PUBLIC' was the most PERMISSIVE band in
+      // §5, which pinned the matrix to its loosest row on every decision.
+      classification: manifest?.dataClassificationCeiling ?? 'RESTRICTED',
+      destination: destinationForNetworkAccess(manifest?.networkAccess),
       tool: exec.name,
     }
   }
 
-  /**
-   * Infer destination from tool name heuristics.
-   */
-  private inferDestination(toolName: string): WbPolicyRequest['destination'] {
-    const lowerName = toolName.toLowerCase()
-
-    // Local tools
-    if (lowerName.includes('local') || lowerName.includes('bash') || lowerName.includes('shell')) {
-      return 'local'
-    }
-
-    // Internal tools
-    if (lowerName.includes('internal') || lowerName.includes('db') || lowerName.includes('database')) {
-      return 'internal'
-    }
-
-    // Internet tools
-    if (lowerName.includes('web') || lowerName.includes('search') || lowerName.includes('fetch')) {
-      return 'internet'
-    }
-
-    // External API tools
-    if (lowerName.includes('external') || lowerName.includes('api')) {
-      return 'external_api'
-    }
-
-    // Default to local for unknown tools
-    return 'local'
-  }
-
-  /**
-   * Infer action from tool name heuristics.
-   */
-  private inferAction(toolName: string): WbPolicyRequest['action'] {
-    const lowerName = toolName.toLowerCase()
-
-    // Read operations
-    if (lowerName.includes('read') || lowerName.includes('get') || lowerName.includes('fetch')) {
-      return 'read_data'
-    }
-
-    // Write operations
-    if (lowerName.includes('write') || lowerName.includes('send') || lowerName.includes('upload')) {
-      return 'send_data'
-    }
-
-    // Default to invoke_tool
-    return 'invoke_tool'
-  }
 
   /**
    * Check if user's clearance meets the tool's data classification ceiling.

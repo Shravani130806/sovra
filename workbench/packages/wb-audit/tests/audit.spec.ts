@@ -240,24 +240,51 @@ describe('wb-audit plugin', () => {
     expect(results[0].sessionId).toBe(asWbSessionId('s2'))
   })
 
-  it('wb/policy/decision event is skipped due to missing sessionId gap', async () => {
+  it('records every policy decision, ALLOW included', async () => {
+    // §9 invariant 4: a positive decision must be as observable as a negative
+    // one. These events were previously dropped for want of a sessionId, which
+    // left the provenance log with no policy decisions at all.
     await ctx.plugin(WbAuditService, { root: auditRoot })
     const policyEvent: WbPolicyDecisionEvent = {
       user: asWbUserId('u1'),
+      sessionId: asWbSessionId('s1'),
       agentPreset: 'test',
       action: 'invoke_tool',
       classification: 'INTERNAL',
       destination: 'local',
       decision: 'ALLOW',
-      reason: 'test',
+      reason: 'within clearance',
     }
     ctx.emit('wb/policy/decision', policyEvent)
-    // Should not create an entry because of missing sessionId gap
     const results = ctx.wbAudit.query({ kind: 'policy_decision' })
-    expect(results).toHaveLength(0)
+    expect(results).toHaveLength(1)
+    expect(results[0]).toMatchObject({
+      sessionId: asWbSessionId('s1'),
+      userId: asWbUserId('u1'),
+      kind: 'policy_decision',
+    })
+    expect(results[0]!.summary).toContain('ALLOW')
   })
 
-  it('wb/ingestion/completed event is skipped due to missing sessionId gap', async () => {
+  it('records a DENY with its reason, so a refusal is reviewable', async () => {
+    await ctx.plugin(WbAuditService, { root: auditRoot })
+    ctx.emit('wb/policy/decision', {
+      user: asWbUserId('u1'),
+      sessionId: asWbSessionId('s1'),
+      agentPreset: 'test',
+      action: 'invoke_tool',
+      tool: 'web_search',
+      classification: 'CONFIDENTIAL',
+      destination: 'internet',
+      decision: 'DENY',
+      reason: 'CLEARANCE_INSUFFICIENT',
+    } as WbPolicyDecisionEvent)
+    const results = ctx.wbAudit.query({ kind: 'policy_decision' })
+    expect(results[0]!.summary).toContain('CLEARANCE_INSUFFICIENT')
+    expect(results[0]!.summary).toContain('web_search')
+  })
+
+  it('records an ingestion completion with the classification it entered under', async () => {
     await ctx.plugin(WbAuditService, { root: auditRoot })
     const ingestionEvent: WbIngestionCompletedEvent = {
       documentId: asWbDocumentId('doc1'),
@@ -265,6 +292,10 @@ describe('wb-audit plugin', () => {
     }
     ctx.emit('wb/ingestion/completed', ingestionEvent)
     const results = ctx.wbAudit.query({ kind: 'ingestion_completed' })
-    expect(results).toHaveLength(0)
+    expect(results).toHaveLength(1)
+    expect(results[0]!.summary).toContain('PUBLIC')
+    // §7.4 does not attribute ingestion to a session; the entry says so
+    // rather than inventing one.
+    expect(results[0]!.sessionId).toBe('unattributed')
   })
 })

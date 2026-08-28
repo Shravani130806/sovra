@@ -14,12 +14,12 @@ import type {
   WbRagService,
   WbRagResult,
   WbUser,
+  WbSessionId,
   WbCitation,
   WbPolicyService,
   WbModelGatewayService,
   WbRagRetrievedEvent,
 } from '@mrpl/dsh-workbench-types'
-import { asWbSessionId } from '@mrpl/dsh-workbench-types'
 
 import { readIndex, search, type IndexChunk } from './jsonl-index.ts'
 
@@ -63,8 +63,7 @@ export const Config: z<Config> = z.object({
 /** Sentinel for WbPolicyRequest.agentPreset — retrieve() has no preset parameter. */
 const UNKNOWN_PRESET = 'unknown'
 
-/** Sentinel for WbRagRetrievedEvent.sessionId — retrieve() has no session parameter. */
-const UNKNOWN_SESSION = asWbSessionId('unknown')
+
 
 /** Build a WbCitation from an IndexChunk, omitting undefined optional fields. */
 function makeCitation(chunk: IndexChunk): WbCitation {
@@ -86,12 +85,14 @@ async function authorizeCandidates(
   ctx: Context,
   candidates: IndexChunk[],
   user: WbUser,
+  sessionId: WbSessionId,
 ): Promise<{ authorized: IndexChunk[]; filtered: WbRagResult['filtered'] }> {
   const evaluations = await Promise.all(
     candidates.map(async (candidate) => {
       const decision = await ctx.wbPolicy.evaluate({
         user: user.id,
-        agentPreset: UNKNOWN_PRESET,
+        sessionId,
+        agentPreset: user.allowedAgentPresets[0] ?? UNKNOWN_PRESET,
         action: 'read_data',
         resource: candidate.documentId,
         classification: candidate.classification,
@@ -137,7 +138,7 @@ export function apply(ctx: Context, config: Config) {
 
   ctx.effect(() => {
     ctx.wbRag = {
-      async retrieve(query: string, user: WbUser): Promise<WbRagResult> {
+      async retrieve(query: string, user: WbUser, sessionId: WbSessionId): Promise<WbRagResult> {
         // 1. Embed query via wb-model-gateway
         ctx.wbModelGateway.resolve('embedding')
 
@@ -151,7 +152,7 @@ export function apply(ctx: Context, config: Config) {
         const topCandidates = search(candidates, queryEmbedding, 20)
 
         // 3. Authorize BEFORE reranking (DESIGN.md §9 invariant 2)
-        const { authorized, filtered } = await authorizeCandidates(ctx, topCandidates, user)
+        const { authorized, filtered } = await authorizeCandidates(ctx, topCandidates, user, sessionId)
 
         // 4. Rerank the authorized set
         ctx.wbModelGateway.resolve('rerank')
@@ -169,7 +170,7 @@ export function apply(ctx: Context, config: Config) {
 
         // 6. Emit retrieval event for wb-audit
         ctx.emit('wb/rag/retrieved', {
-          sessionId: UNKNOWN_SESSION,
+          sessionId,
           result,
         })
 

@@ -18,7 +18,7 @@ import type {
   WbDocumentId,
   WbRagRetrievedEvent,
 } from '@mrpl/dsh-workbench-types'
-import { asWbUserId, asWbDocumentId } from '@mrpl/dsh-workbench-types'
+import { asWbUserId, asWbDocumentId, asWbSessionId } from '@mrpl/dsh-workbench-types'
 
 import * as wbRag from '../src/index.ts'
 
@@ -119,6 +119,9 @@ async function setup(indexPath?: string) {
 // Tests
 // ---------------------------------------------------------------------------
 
+/** The session every retrieval in these tests belongs to. */
+const TEST_SESSION = asWbSessionId('sess-test')
+
 describe('wb-rag', () => {
   // ---- Test 1: Authorize-before-rerank ordering ----
   it('calls all policy.evaluate() calls before the reranker is invoked', async () => {
@@ -132,7 +135,7 @@ describe('wb-rag', () => {
     const { ctx, policy, gateway } = await setup(indexPath)
     policy.enqueue('ALLOW', 'ALLOW', 'ALLOW')
 
-    await ctx.wbRag.retrieve('test query', fullClearanceUser())
+    await ctx.wbRag.retrieve('test query', fullClearanceUser(), TEST_SESSION)
 
     // All 3 policy calls happened
     expect(policy.calls).toHaveLength(3)
@@ -162,12 +165,16 @@ describe('wb-rag', () => {
     policy.enqueue('ALLOW')
     const user = fullClearanceUser({ id: asWbUserId('user-field-test') })
 
-    await ctx.wbRag.retrieve('field test', user)
+    await ctx.wbRag.retrieve('field test', user, TEST_SESSION)
 
     expect(policy.calls).toHaveLength(1)
     const req = policy.calls[0]!
     expect(req.user).toBe('user-field-test')
-    expect(req.agentPreset).toBe('unknown')
+    // The session is what wb-policy authenticates against; passing only a user
+    // id made every lookup miss and every chunk deny.
+    expect(req.sessionId).toBe('sess-test')
+    // The principal's own preset, not a sentinel — per-role overrides key off it.
+    expect(req.agentPreset).toBe('document-analyst')
     expect(req.action).toBe('read_data')
     expect(req.resource).toBe('doc-field-test')
     expect(req.classification).toBe('CONFIDENTIAL')
@@ -184,7 +191,7 @@ describe('wb-rag', () => {
     const { ctx, policy } = await setup(indexPath)
     policy.enqueue('ALLOW')
 
-    const result = await ctx.wbRag.retrieve('query', fullClearanceUser())
+    const result = await ctx.wbRag.retrieve('query', fullClearanceUser(), TEST_SESSION)
 
     expect(result.chunks).toHaveLength(1)
     expect(result.chunks[0]!.text).toBe('Allowed text')
@@ -203,7 +210,7 @@ describe('wb-rag', () => {
     const { ctx, policy } = await setup(indexPath)
     policy.enqueue('DENY')
 
-    const result = await ctx.wbRag.retrieve('query', fullClearanceUser())
+    const result = await ctx.wbRag.retrieve('query', fullClearanceUser(), TEST_SESSION)
 
     expect(result.chunks).toHaveLength(0)
     expect(result.citations).toHaveLength(0)
@@ -222,7 +229,7 @@ describe('wb-rag', () => {
     const { ctx, policy } = await setup(indexPath)
     policy.enqueue('REQUIRE_APPROVAL')
 
-    const result = await ctx.wbRag.retrieve('query', fullClearanceUser())
+    const result = await ctx.wbRag.retrieve('query', fullClearanceUser(), TEST_SESSION)
 
     expect(result.chunks).toHaveLength(0)
     expect(result.citations).toHaveLength(0)
@@ -241,7 +248,7 @@ describe('wb-rag', () => {
     const { ctx, policy } = await setup(indexPath)
     policy.enqueue('ALLOW_WITH_REDACTION')
 
-    const result = await ctx.wbRag.retrieve('query', fullClearanceUser())
+    const result = await ctx.wbRag.retrieve('query', fullClearanceUser(), TEST_SESSION)
 
     expect(result.chunks).toHaveLength(0)
     expect(result.citations).toHaveLength(0)
@@ -260,7 +267,7 @@ describe('wb-rag', () => {
     const { ctx, policy } = await setup(indexPath)
     policy.enqueue('ALLOW_METADATA_ONLY')
 
-    const result = await ctx.wbRag.retrieve('query', fullClearanceUser())
+    const result = await ctx.wbRag.retrieve('query', fullClearanceUser(), TEST_SESSION)
 
     expect(result.chunks).toHaveLength(0)
     expect(result.citations).toHaveLength(0)
@@ -272,14 +279,14 @@ describe('wb-rag', () => {
   // ---- Test 8: Embeds through ctx.wbModelGateway.resolve('embedding') ----
   it('resolves embedding capability through wb-model-gateway', async () => {
     const { ctx, gateway } = await setup()
-    await ctx.wbRag.retrieve('query', fullClearanceUser())
+    await ctx.wbRag.retrieve('query', fullClearanceUser(), TEST_SESSION)
     expect(gateway.resolveCalls).toContain('embedding')
   })
 
   // ---- Test 9: Reranks through ctx.wbModelGateway.resolve('rerank') ----
   it('resolves rerank capability through wb-model-gateway', async () => {
     const { ctx, gateway } = await setup()
-    await ctx.wbRag.retrieve('query', fullClearanceUser())
+    await ctx.wbRag.retrieve('query', fullClearanceUser(), TEST_SESSION)
     expect(gateway.resolveCalls).toContain('rerank')
   })
 
@@ -296,18 +303,19 @@ describe('wb-rag', () => {
     const events: WbRagRetrievedEvent[] = []
     ctx.on('wb/rag/retrieved', (payload: WbRagRetrievedEvent) => { events.push(payload) })
 
-    await ctx.wbRag.retrieve('event test', fullClearanceUser())
+    await ctx.wbRag.retrieve('event test', fullClearanceUser(), TEST_SESSION)
 
     expect(events).toHaveLength(1)
     expect(events[0]!.result.filtered).toHaveLength(1)
     expect(events[0]!.result.filtered[0]!.citation.documentId).toBe('doc-event')
-    expect(events[0]!.sessionId).toBe('unknown')
+    // The real session, not a sentinel: wb-audit keys the retrieval entry on it.
+    expect(events[0]!.sessionId).toBe('sess-test')
   })
 
   // ---- Test 11: Empty result set → well-formed empty WbRagResult ----
   it('returns well-formed empty result when index is empty', async () => {
     const { ctx } = await setup()
-    const result = await ctx.wbRag.retrieve('empty', fullClearanceUser())
+    const result = await ctx.wbRag.retrieve('empty', fullClearanceUser(), TEST_SESSION)
     expect(result).toEqual({ chunks: [], citations: [], filtered: [] })
   })
 
@@ -350,7 +358,7 @@ describe('wb-rag', () => {
     const { ctx, policy } = await setup(indexPath)
     policy.enqueue('ALLOW_METADATA_ONLY', 'ALLOW')
 
-    const result = await ctx.wbRag.retrieve('query', fullClearanceUser())
+    const result = await ctx.wbRag.retrieve('query', fullClearanceUser(), TEST_SESSION)
 
     expect(result.chunks).toHaveLength(1)
     expect(result.citations).toHaveLength(1)
@@ -372,7 +380,7 @@ describe('wb-rag', () => {
     const { ctx, policy } = await setup(indexPath)
     policy.enqueue('DENY', 'DENY')
 
-    const result = await ctx.wbRag.retrieve('query', fullClearanceUser())
+    const result = await ctx.wbRag.retrieve('query', fullClearanceUser(), TEST_SESSION)
 
     expect(result.chunks).toHaveLength(0)
     expect(result.citations).toHaveLength(0)
@@ -382,7 +390,7 @@ describe('wb-rag', () => {
   // ---- Test 16: Nonexistent index file → empty result, not error ----
   it('returns empty result when index file does not exist', async () => {
     const { ctx } = await setup(join(tmpDir, 'nonexistent.jsonl'))
-    const result = await ctx.wbRag.retrieve('query', fullClearanceUser())
+    const result = await ctx.wbRag.retrieve('query', fullClearanceUser(), TEST_SESSION)
     expect(result).toEqual({ chunks: [], citations: [], filtered: [] })
   })
 
@@ -396,7 +404,7 @@ describe('wb-rag', () => {
     const { ctx, policy } = await setup(indexPath)
     policy.enqueue('ALLOW')
 
-    await ctx.wbRag.retrieve('query', fullClearanceUser())
+    await ctx.wbRag.retrieve('query', fullClearanceUser(), TEST_SESSION)
 
     expect(policy.calls[0]!.destination).toBe('local')
   })
