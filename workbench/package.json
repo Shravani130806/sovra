@@ -1,0 +1,27 @@
+{
+  "name": "@mrpl/dsh-workbench-integration",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Workbench-level integration suites: real sibling plugins composed together",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:*",
+    "@deepseek-ai/dsh-tools": "workspace:*",
+    "@deepseek-ai/dsh-system-prompt": "workspace:*",
+    "@deepseek-ai/dsh-llm": "workspace:*",
+    "@mrpl/dsh-workbench-types": "workspace:*",
+    "@mrpl/dsh-workbench-identity": "workspace:*",
+    "@mrpl/dsh-workbench-policy": "workspace:*",
+    "@mrpl/dsh-workbench-audit": "workspace:*",
+    "@mrpl/dsh-workbench-model-gateway": "workspace:*",
+    "@mrpl/dsh-workbench-tool-gateway": "workspace:*",
+    "@mrpl/dsh-workbench-vision": "workspace:*",
+    "@mrpl/dsh-workbench-rag": "workspace:*",
+    "@mrpl/dsh-workbench-ingestion": "workspace:*",
+    "@mrpl/dsh-workbench-artifacts": "workspace:*",
+    "@mrpl/dsh-workbench-admin-console": "workspace:*"
+  }
+}

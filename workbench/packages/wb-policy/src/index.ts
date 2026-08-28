@@ -62,7 +62,18 @@ function destinationForNetworkAccess(
 
 export const name = 'wb-policy'
 
-export const inject = ['wbIdentity', 'wbToolGateway'] as const
+/**
+ * Dependencies are resolved per call, not injected.
+ *
+ * Cordis `inject` is required-only: a listed service that never mounts leaves
+ * this plugin unapplied, and an unapplied wb-policy registers no
+ * `tools/pre-execute` listener — so the bundle boots with every tool
+ * ungoverned and no error anywhere. That is precisely the silent partial mount
+ * §9 invariant 1 forbids. The gate therefore always mounts and resolves
+ * `wbIdentity` / `wbToolGateway` through `ctx.get()` at decision time,
+ * denying when either is missing.
+ */
+export const inject = [] as const
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -73,6 +84,27 @@ export const inject = ['wbIdentity', 'wbToolGateway'] as const
 // wb-admin-console can reference them without importing this package.
 export type { WbCapability } from '@mrpl/dsh-workbench-types'
 /** Every capability the matrix keys on; the validation set for admin edits. */
+/** Classification bands, least to most sensitive. */
+const CLEARANCE_ORDER: readonly WbClassification[] = [
+  'PUBLIC',
+  'INTERNAL',
+  'CONFIDENTIAL',
+  'RESTRICTED',
+]
+
+/**
+ * Position of a band in {@link CLEARANCE_ORDER}.
+ *
+ * A principal may see data at or below their own rank. The comparison used to
+ * read `userLevel <= dataLevel`, which passed a PUBLIC principal for
+ * RESTRICTED data — the exact case the denial message describes as a failure.
+ * @param band - the classification to rank.
+ * @returns its index; -1 for an unrecognised band, which never satisfies a check.
+ */
+function clearanceRank(band: WbClassification): number {
+  return CLEARANCE_ORDER.indexOf(band)
+}
+
 export const ALL_CAPABILITIES: readonly WbCapability[] = [
   'local_model_inference',
   'internal_rag',
@@ -238,7 +270,7 @@ declare module '@deepseek-ai/cordis' {
  * registers a `tools/pre-execute` listener to gate all tool calls automatically.
  */
 export class WbPolicyService extends Service {
-  static inject = ['wbIdentity', 'wbToolGateway'] as const
+  static inject = [] as const
 
   private readonly matrix: PolicyMatrix
   private roleOverrides: RoleOverrides
@@ -352,7 +384,18 @@ export class WbPolicyService extends Service {
     // 2. Check tool manifest (for invoke_tool actions)
     if (request.action === 'invoke_tool' && request.tool) {
       const toolGateway = this.ctx.get('wbToolGateway') as WbToolGatewayService | undefined
-      if (toolGateway) {
+      if (!toolGateway) {
+        // Without the manifest directory the gate cannot tell a local read
+        // from an external upload. Skipping the check would let every tool
+        // through unclassified; refusing is the only safe reading.
+        const decision: WbPolicyDecision = {
+          decision: 'DENY',
+          reason: 'NO_TOOL_GATEWAY: manifest directory unavailable, cannot classify tool calls',
+        }
+        this.emitDecision(request, decision)
+        return decision
+      }
+      {
         const manifest = toolGateway.getManifest(request.tool)
         if (!manifest) {
           const decision: WbPolicyDecision = {
@@ -375,7 +418,21 @@ export class WbPolicyService extends Service {
       }
     }
 
-    // 3. Resolve capability from action + destination
+    // 3. Clearance against the data's own classification, for EVERY action.
+    // This used to live only in the invoke_tool branch, checked against a
+    // tool's manifest ceiling, so `read_data` — which is how wb-rag authorizes
+    // every chunk — skipped it entirely and a PUBLIC principal could read
+    // RESTRICTED text.
+    if (clearanceRank(user.clearance) < clearanceRank(request.classification)) {
+      const decision: WbPolicyDecision = {
+        decision: 'DENY',
+        reason: `CLEARANCE_INSUFFICIENT: ${user.clearance} clearance cannot reach ${request.classification} data`,
+      }
+      this.emitDecision(request, decision)
+      return decision
+    }
+
+    // 4. Resolve capability from action + destination
     const capability = resolveCapability(request.action, request.destination)
     if (!capability) {
       const decision: WbPolicyDecision = {
@@ -532,10 +589,7 @@ export class WbPolicyService extends Service {
    * Check if user's clearance meets the tool's data classification ceiling.
    */
   private clearanceMeetsCeiling(user: WbUser, ceiling: WbClassification): boolean {
-    const clearanceOrder: WbClassification[] = ['PUBLIC', 'INTERNAL', 'CONFIDENTIAL', 'RESTRICTED']
-    const userLevel = clearanceOrder.indexOf(user.clearance)
-    const ceilingLevel = clearanceOrder.indexOf(ceiling)
-    return userLevel <= ceilingLevel
+    return clearanceRank(user.clearance) >= clearanceRank(ceiling)
   }
 
   /**

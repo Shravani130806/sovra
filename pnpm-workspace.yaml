@@ -6,6 +6,8 @@ packages:
   - native/landlock-run
   - native/landlock-run/packages/*
   - workbench/packages/*
+  # Workbench-level integration suites (tests/contract, tests/invariants, tests/e2e).
+  - workbench
   # Product assemblies over the package tier; apps/cli owns the `dsh` bin.
   - apps/*
   - website

@@ -31,7 +31,11 @@ function createMockUser(overrides: Partial<WbUser> = {}): WbUser {
     displayName: 'Test User',
     department: 'Engineering',
     role: 'engineer',
-    clearance: 'INTERNAL',
+    // Fully cleared on purpose: the matrix suite tests the §5 mapping, and a
+    // principal short of the row's classification is denied on clearance
+    // before the matrix is ever consulted. Clearance itself is covered by its
+    // own describe block below.
+    clearance: 'RESTRICTED',
     allowedAgentPresets: ['document-analyst', 'engineering-vision', 'code-analysis', 'research', 'artifact'],
     allowedToolCategories: ['local', 'enterprise', 'external'],
     networkPermissions: ['web_search', 'external_api'],
@@ -463,5 +467,50 @@ describe('wb-policy plugin', () => {
       // After disposal, service should be undefined
       expect(ctx.wbPolicy).toBeUndefined()
     })
+  })
+})
+
+describe('clearance is checked against the data, for every action', () => {
+  let ctx: Context
+
+  beforeEach(() => {
+    ctx = new Context()
+    ctx.provide('wbToolGateway', createMockToolGateway())
+  })
+
+  async function decide(clearance: WbClassification, classification: WbClassification) {
+    ctx.provide('wbIdentity', createMockIdentityService(createMockUser({ clearance })))
+    await ctx.plugin(WbPolicyService)
+    return ctx.wbPolicy.evaluate({
+      user: asWbUserId('test-user'),
+      sessionId: asWbSessionId('test-session'),
+      agentPreset: 'document-analyst',
+      action: 'read_data',
+      classification,
+      destination: 'local',
+    })
+  }
+
+  it('denies a principal reading data above their clearance', async () => {
+    // The bug this guards: clearance was only compared inside the invoke_tool
+    // branch, so read_data — how wb-rag authorizes every chunk — skipped it,
+    // and a PUBLIC principal could read RESTRICTED text.
+    const decision = await decide('PUBLIC', 'RESTRICTED')
+    expect(decision.decision).toBe('DENY')
+    expect(decision.reason).toContain('CLEARANCE_INSUFFICIENT')
+  })
+
+  it('allows a principal reading data at their own clearance', async () => {
+    expect((await decide('CONFIDENTIAL', 'CONFIDENTIAL')).decision).not.toBe('DENY')
+  })
+
+  it('allows a principal reading data below their clearance', async () => {
+    expect((await decide('RESTRICTED', 'PUBLIC')).decision).not.toBe('DENY')
+  })
+
+  it('denies one band short, not only the extreme case', async () => {
+    // The comparison was inverted (userLevel <= dataLevel), which passed every
+    // under-cleared principal; an off-by-one guard catches a re-inversion.
+    expect((await decide('CONFIDENTIAL', 'RESTRICTED')).decision).toBe('DENY')
   })
 })
