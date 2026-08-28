@@ -88,6 +88,27 @@ Implements user lookup by principal. The built-in `FileBackedUserDirectory` read
 
 ## Deviations from DESIGN.md
 
-- **Principal provider is a genuine gap**: The harness has no authenticated identity concept (`ctx.identity` does not exist; `packages/identity/anonymous-user-id` is a random telemetry UUID only). `wb-identity` defines the `SessionPrincipalProvider` extension point so deployments can inject their own principal resolution logic, but there is no default implementation that extracts a principal from an authenticated context. This is tracked in `DESIGN.md §12` as an open question.
+- ~~**Principal provider is a genuine gap**~~ **RESOLVED 2026-08-28.** The
+  source is now a `Config` field — `null` (the safe default, resolves nobody so
+  policy denies), `header` (a reverse proxy or SSO layer stamps the
+  authenticated username; the standard on-premise deployment), `env` (one
+  named operator, for single-user machines — note it gives every session the
+  same identity, so the audit trail cannot distinguish who did what), or
+  `file` (a session-to-user map, for automation). Every source fails closed and
+  none can invent a user; selecting a source without its required setting
+  throws at load. Original note: The harness has no authenticated identity concept (`ctx.identity` does not exist; `packages/identity/anonymous-user-id` is a random telemetry UUID only). `wb-identity` defines the `SessionPrincipalProvider` extension point so deployments can inject their own principal resolution logic, but there is no default implementation that extracts a principal from an authenticated context. This is tracked in `DESIGN.md §12` as an open question.
 - **Eager resolution model**: `session/created` triggers resolution immediately, before any tool call. The `current()` method is a pure cache read. This matches the DESIGN.md contract but differs from a lazy on-demand model.
 - **NullSessionPrincipalProvider as default**: Always returns `undefined`. Tests use inline object literals implementing `SessionPrincipalProvider` for deterministic scenarios.
+
+## Choosing a principal source
+
+| Source | Use when | Trust assumption |
+|---|---|---|
+| `null` | Nothing is configured yet | None — everything is denied. Safe, and useless in production. |
+| `header` | An authenticating proxy fronts the workbench | **Only as trustworthy as the proxy.** A deployment that exposes the workbench port directly must not use this: a caller could set the header themselves. |
+| `env` | A single-operator machine or a demo box | The OS user. Every session shares one identity, so the audit trail cannot attribute actions to individuals. |
+| `file` | Automation that establishes sessions out of band | Whoever can write the mapping file. |
+
+`header` is the intended production choice. Bind the principal at session start
+via `HeaderSessionPrincipalProvider.bind(sessionId, headers)` from the
+transport, and `release(sessionId)` when the session ends.

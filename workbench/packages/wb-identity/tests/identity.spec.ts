@@ -1,5 +1,12 @@
+import {
+  createPrincipalProvider,
+  EnvSessionPrincipalProvider,
+  FileSessionPrincipalProvider,
+  type Config,
+  type HeaderSessionPrincipalProvider,
+} from '../src/index.ts'
 import { describe, expect, it, beforeEach, afterEach } from 'vitest'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from '@deepseek-ai/cordis'
@@ -339,5 +346,117 @@ describe('wb-identity HMR-safety', () => {
     expect((ctx as any).wbIdentity).toBeUndefined()
 
     rmSync(tmp, { recursive: true, force: true })
+  })
+})
+
+describe('principal source is selectable, and every source fails closed', () => {
+  const SESSION = asWbSessionId('s-1')
+
+  function config(overrides: Partial<Config> = {}): Config {
+    return {
+      userDirectory: 'file',
+      userDirectoryPath: '/tmp/users.yaml',
+      principalSource: 'null',
+      principalHeader: 'x-forwarded-user',
+      principalEnvVar: 'WB_PRINCIPAL',
+      principalFilePath: '/tmp/sessions.json',
+      ...overrides,
+    }
+  }
+
+  it('defaults to resolving nobody, so an unconfigured deployment denies', () => {
+    // The safe baseline is preserved — it just is no longer the ONLY option,
+    // which previously meant a real deployment could not resolve identity at
+    // all without patching the plugin.
+    const provider = createPrincipalProvider(config())
+    expect(provider.getPrincipal(SESSION)).toBeUndefined()
+  })
+
+  describe('header source', () => {
+    it('resolves the principal a proxy stamped', () => {
+      const provider = createPrincipalProvider(config({ principalSource: 'header' })) as HeaderSessionPrincipalProvider
+      provider.bind(SESSION, { 'x-forwarded-user': 'r.sharma' })
+      expect(provider.getPrincipal(SESSION)).toBe('r.sharma')
+    })
+
+    it('matches the header case-insensitively, per RFC 9110', () => {
+      // Transports normalize header case inconsistently; trusting one spelling
+      // would silently resolve nobody and read as a correct denial.
+      const provider = createPrincipalProvider(config({ principalSource: 'header' })) as HeaderSessionPrincipalProvider
+      provider.bind(SESSION, { 'X-Forwarded-User': 'r.sharma' })
+      expect(provider.getPrincipal(SESSION)).toBe('r.sharma')
+    })
+
+    it('an absent or blank header resolves nobody', () => {
+      const provider = createPrincipalProvider(config({ principalSource: 'header' })) as HeaderSessionPrincipalProvider
+      provider.bind(SESSION, { 'x-forwarded-user': '   ' })
+      expect(provider.getPrincipal(SESSION)).toBeUndefined()
+      provider.bind(asWbSessionId('s-2'), {})
+      expect(provider.getPrincipal(asWbSessionId('s-2'))).toBeUndefined()
+    })
+
+    it('does not leak one session’s principal into another', () => {
+      const provider = createPrincipalProvider(config({ principalSource: 'header' })) as HeaderSessionPrincipalProvider
+      provider.bind(SESSION, { 'x-forwarded-user': 'r.sharma' })
+      expect(provider.getPrincipal(asWbSessionId('other'))).toBeUndefined()
+    })
+
+    it('release forgets a principal when its session ends', () => {
+      const provider = createPrincipalProvider(config({ principalSource: 'header' })) as HeaderSessionPrincipalProvider
+      provider.bind(SESSION, { 'x-forwarded-user': 'r.sharma' })
+      provider.release(SESSION)
+      expect(provider.getPrincipal(SESSION)).toBeUndefined()
+    })
+  })
+
+  describe('env source', () => {
+    it('resolves every session to the named operator', () => {
+      const provider = new EnvSessionPrincipalProvider('WB_TEST_USER', { WB_TEST_USER: 'operator' })
+      expect(provider.getPrincipal(SESSION)).toBe('operator')
+      expect(provider.getPrincipal(asWbSessionId('other'))).toBe('operator')
+    })
+
+    it('an unset variable resolves nobody', () => {
+      expect(new EnvSessionPrincipalProvider('WB_TEST_USER', {}).getPrincipal(SESSION)).toBeUndefined()
+    })
+  })
+
+  describe('file source', () => {
+    it('resolves from a session-to-user map', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'wb-principal-'))
+      const path = join(dir, 'sessions.json')
+      writeFileSync(path, JSON.stringify({ [SESSION]: 'a.patil' }))
+      expect(new FileSessionPrincipalProvider(path).getPrincipal(SESSION)).toBe('a.patil')
+    })
+
+    it('a missing file resolves nobody instead of throwing', () => {
+      // An identity provider that throws takes the whole gate down with it.
+      expect(new FileSessionPrincipalProvider('/nonexistent/sessions.json').getPrincipal(SESSION))
+        .toBeUndefined()
+    })
+
+    it('a malformed file resolves nobody instead of throwing', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'wb-principal-'))
+      const path = join(dir, 'sessions.json')
+      writeFileSync(path, 'not json at all')
+      expect(new FileSessionPrincipalProvider(path).getPrincipal(SESSION)).toBeUndefined()
+    })
+  })
+
+  describe('misconfiguration fails at load', () => {
+    it('header source without a header name throws', () => {
+      expect(() => createPrincipalProvider(config({ principalSource: 'header', principalHeader: '  ' })))
+        .toThrow(/principalHeader/)
+    })
+
+    it('env source without a variable name throws', () => {
+      expect(() => createPrincipalProvider(config({ principalSource: 'env', principalEnvVar: '' })))
+        .toThrow(/principalEnvVar/)
+    })
+
+    it('file source without a path throws', () => {
+      expect(() => createPrincipalProvider(config({ principalSource: 'file', principalFilePath: '' })))
+        .toThrow(/principalFilePath/)
+    })
   })
 })

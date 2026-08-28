@@ -27,6 +27,17 @@ import {
   NullSessionPrincipalProvider,
 } from './types.ts'
 import {
+  EnvSessionPrincipalProvider,
+  FileSessionPrincipalProvider,
+  HeaderSessionPrincipalProvider,
+} from './principal-providers.ts'
+
+export {
+  EnvSessionPrincipalProvider,
+  FileSessionPrincipalProvider,
+  HeaderSessionPrincipalProvider,
+} from './principal-providers.ts'
+import {
   type WbUserDirectoryProvider,
   FileBackedUserDirectory,
 } from './user-directory.ts'
@@ -63,11 +74,31 @@ export interface Config {
   userDirectory: 'file'
   /** Path to the users.yaml file (supports $DSH_HOME expansion). */
   userDirectoryPath: string
+  /**
+   * Where an already-authenticated username arrives from.
+   *
+   * `wb-identity` shapes the principal the deployment authenticates; it does
+   * not authenticate anyone (§6.1 non-goals). `null` resolves nobody, so
+   * `wb-policy` denies everything — correct as a safe baseline, but it was
+   * previously the only option and not selectable, which meant a real
+   * deployment could not resolve identity at all without patching the plugin.
+   */
+  principalSource: 'null' | 'header' | 'env' | 'file'
+  /** Header a reverse proxy stamps the username on, for `header`. */
+  principalHeader: string
+  /** Environment variable naming the single operator, for `env`. */
+  principalEnvVar: string
+  /** Path to a session-id to username JSON map, for `file`. */
+  principalFilePath: string
 }
 
 export const Config: Schema<Config> = Schema.object({
   userDirectory: Schema.union(['file']).default('file'),
   userDirectoryPath: Schema.string().default('$DSH_HOME/workbench/users.yaml'),
+  principalSource: Schema.union(['null', 'header', 'env', 'file']).default('null'),
+  principalHeader: Schema.string().default('x-forwarded-user'),
+  principalEnvVar: Schema.string().default('WB_PRINCIPAL'),
+  principalFilePath: Schema.string().default('$DSH_HOME/workbench/sessions.json'),
 })
 
 // ---------------------------------------------------------------------------
@@ -161,6 +192,44 @@ export class WbIdentityServiceImpl extends Service implements WbIdentityService 
 // apply() — Cordis entrypoint
 // ---------------------------------------------------------------------------
 
+/**
+ * Build the configured principal provider.
+ *
+ * Misconfiguration fails at load (§9 invariant 5) rather than resolving nobody
+ * at request time, because a silently-empty identity is indistinguishable from
+ * a correctly-denied one in the audit log.
+ * @param config - the validated plugin configuration.
+ * @returns the provider for the selected source.
+ * @throws when a source is selected without the setting it requires.
+ */
+export function createPrincipalProvider(config: Config): SessionPrincipalProvider {
+  switch (config.principalSource) {
+    case 'header':
+      if (!config.principalHeader.trim()) {
+        throw new Error('wb-identity: principalSource "header" requires principalHeader')
+      }
+      return new HeaderSessionPrincipalProvider(config.principalHeader)
+    case 'env':
+      if (!config.principalEnvVar.trim()) {
+        throw new Error('wb-identity: principalSource "env" requires principalEnvVar')
+      }
+      return new EnvSessionPrincipalProvider(config.principalEnvVar)
+    case 'file':
+      if (!config.principalFilePath.trim()) {
+        throw new Error('wb-identity: principalSource "file" requires principalFilePath')
+      }
+      return new FileSessionPrincipalProvider(
+        config.principalFilePath.replace('$DSH_HOME', resolveDshHome()),
+      )
+    case 'null':
+      return new NullSessionPrincipalProvider()
+    default: {
+      const never: never = config.principalSource
+      throw new Error(`wb-identity: unknown principalSource ${String(never)}`)
+    }
+  }
+}
+
 export function apply(ctx: Context, config: Config): void {
   const dshHome = resolveDshHome()
   const dirPath = config.userDirectoryPath.replace('$DSH_HOME', dshHome)
@@ -175,6 +244,5 @@ export function apply(ctx: Context, config: Config): void {
     )
   }
 
-  const principalProvider = new NullSessionPrincipalProvider()
-  new WbIdentityServiceImpl(ctx, directory, principalProvider)
+  new WbIdentityServiceImpl(ctx, directory, createPrincipalProvider(config))
 }
