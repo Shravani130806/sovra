@@ -2,8 +2,15 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { asWbDocumentId } from '@mrpl/dsh-workbench-types'
 import styles from './ChatComposer.module.css'
 import { useChat, useChatState } from '../live/hooks.ts'
-import { abortTurn, registerChatAttachmentContent } from '../live/chat-store.ts'
-import { completeUpload, markUploading, queueUpload } from '../live/documents-store.ts'
+import { abortTurn } from '../live/chat-store.ts'
+import {
+  completeUpload,
+  createChunksFromText,
+  getChatAttachmentContent,
+  markUploading,
+  queueUpload,
+  registerChatAttachmentContent,
+} from '../live/documents-store.ts'
 
 /** Rows the textarea may grow to before it scrolls internally. */
 const MAX_ROWS = 8
@@ -75,7 +82,44 @@ export function ChatComposer({ onSend }: ChatComposerProps) {
     for (const file of attachments) {
       const jobId = queueUpload(file.name, 'INTERNAL')
       markUploading(jobId)
-      setTimeout(() => {
+      const existingContent = getChatAttachmentContent(file.name)
+      if (existingContent) {
+        const chunksData = createChunksFromText(existingContent)
+        completeUpload(jobId, {
+          id: asWbDocumentId(`doc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`),
+          title: file.name,
+          classification: 'INTERNAL',
+          declaredClassification: 'INTERNAL',
+          chunks: Math.max(1, chunksData.length),
+          content: existingContent,
+          chunksData,
+          ingestedAt: new Date().toISOString(),
+        })
+      } else if (typeof file.text === 'function') {
+        file.text().then((textContent) => {
+          registerChatAttachmentContent(file.name, textContent)
+          const chunksData = createChunksFromText(textContent)
+          completeUpload(jobId, {
+            id: asWbDocumentId(`doc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`),
+            title: file.name,
+            classification: 'INTERNAL',
+            declaredClassification: 'INTERNAL',
+            chunks: Math.max(1, chunksData.length),
+            content: textContent,
+            chunksData,
+            ingestedAt: new Date().toISOString(),
+          })
+        }).catch(() => {
+          completeUpload(jobId, {
+            id: asWbDocumentId(`doc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`),
+            title: file.name,
+            classification: 'INTERNAL',
+            declaredClassification: 'INTERNAL',
+            chunks: Math.max(1, Math.ceil(file.size / 1024)),
+            ingestedAt: new Date().toISOString(),
+          })
+        })
+      } else {
         completeUpload(jobId, {
           id: asWbDocumentId(`doc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`),
           title: file.name,
@@ -84,7 +128,7 @@ export function ChatComposer({ onSend }: ChatComposerProps) {
           chunks: Math.max(1, Math.ceil(file.size / 1024)),
           ingestedAt: new Date().toISOString(),
         })
-      }, 100)
+      }
     }
 
     if (attachmentNames.length > 0) {
@@ -152,46 +196,53 @@ export function ChatComposer({ onSend }: ChatComposerProps) {
           <input
             ref={fileInput}
             type="file"
+            aria-label="Attach files"
             multiple
             accept={ACCEPTED_ATTACHMENTS}
-            className={styles.hiddenInput}
-            aria-label="Attach files"
+            className={styles.hiddenFileInput}
+            tabIndex={-1}
+            aria-hidden="true"
             onChange={(e) => handleAttach(e.target.files)}
           />
         </div>
 
         <textarea
           ref={textarea}
-          className={styles.input}
+          className={styles.textarea}
+          rows={1}
           value={draft}
-          placeholder={generating ? 'Waiting for response…' : 'Message Sovereign AI…'}
-          aria-label="Message"
+          placeholder={generating ? 'SOVRA is formulating an evidence-grounded response...' : 'Ask about engineering drawings, SOPs, or inspection reports...'}
           disabled={generating}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKeyDown}
-          rows={1}
+          aria-label="Message"
         />
 
         {generating ? (
           <button
-            type="button"
-            className={`${styles.button} ${styles.buttonStop}`}
+            className={`${styles.sendButton} ${styles.abortButton}`}
             onClick={abortTurn}
+            type="button"
             aria-label="Stop generating"
             title="Stop generating"
           >
-            ■
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <rect x="6" y="6" width="12" height="12" rx="2" />
+            </svg>
           </button>
         ) : (
           <button
-            type="button"
-            className={`${styles.button} ${styles.buttonSend}`}
-            onClick={send}
+            className={styles.sendButton}
             disabled={draft.trim() === '' && attachments.length === 0}
+            onClick={send}
+            type="button"
             aria-label="Send Message"
             title="Send Message"
           >
-            ▲
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="22" y1="2" x2="11" y2="13" />
+              <polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
           </button>
         )}
       </div>

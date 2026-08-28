@@ -13,7 +13,7 @@ import { SettingsView } from '../settings/SettingsView.tsx'
 import { SearchView } from '../search/SearchView.tsx'
 import { ModelRoutingView } from '../models/ModelRoutingView.tsx'
 import { useChat, useNavigation } from '../live/hooks.ts'
-import { dispatchTurnToModel } from '../live/chat-store.ts'
+import { dispatchTurnToModel, resetChat } from '../live/chat-store.ts'
 
 const PRESET_META: Record<string, { title: string; desc: string }> = {
   'document-analyst': { title: 'Document Analyst', desc: 'Analyze reports and internal documents' },
@@ -61,8 +61,18 @@ export function ConversationRoot(_props: ConvOwnerProps) {
               <h2>{meta.title}</h2>
               <div className={styles.presetDesc}>{meta.desc}</div>
             </div>
-            <div className={styles.modelIndicator}>
+            <div className={styles.headerActions}>
               <ModelSelector />
+              {turns.length > 0 ? (
+                <button
+                  type="button"
+                  className={styles.clearChatBtn}
+                  onClick={() => resetChat(true)}
+                  title="Clear chat history"
+                >
+                  Clear Chat
+                </button>
+              ) : null}
             </div>
           </div>
 

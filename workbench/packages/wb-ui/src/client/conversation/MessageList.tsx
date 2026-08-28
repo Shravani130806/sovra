@@ -54,7 +54,7 @@ export function MessageList() {
               already grounded when it may yet change. */}
           {turn.role === 'assistant' && !turn.streaming ? (
             <>
-              <SourcesView />
+              <SourcesView citations={turn.citations && turn.citations.length > 0 ? turn.citations : undefined} />
               <ArtifactView />
             </>
           ) : null}

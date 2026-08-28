@@ -15,11 +15,22 @@ import {
   type WbClassification,
 } from '@mrpl/dsh-workbench-types'
 import { getModelsState, selectModel, type ModelSelection } from './models-store.ts'
-import { getDocumentsState, getDocumentFullText } from './documents-store.ts'
+import {
+  getDocumentsState,
+  getDocumentFullText,
+  createChunksFromText,
+  getChatAttachmentContent,
+  registerChatAttachmentContent,
+  clearChatAttachmentContent,
+  type CorpusDocument,
+  type DocumentChunk,
+} from './documents-store.ts'
 import { getCurrentUser } from './user-store.ts'
 import { buildTurnSystemPrompt } from './preset-prompts.ts'
 import { publishAuditEntry, publishChatDecision, publishRetrievalCitations } from './workbench-store.ts'
 import { publishPolicyDecision } from '../policy/policy-store.ts'
+
+export { getChatAttachmentContent, registerChatAttachmentContent, clearChatAttachmentContent }
 
 export interface ToolNode {
   callId: string
@@ -61,21 +72,6 @@ export interface ChatState {
 }
 
 const STORAGE_KEY = 'dsh:workbench:chat_sessions'
-
-const chatAttachmentContentMap = new Map<string, string>()
-
-/**
- * Register the text content of a file attached directly in the chat.
- * Direct chat attachments are readable by the model directly, unlike
- * corpus documents which require tool-based retrieval.
- */
-export function registerChatAttachmentContent(filename: string, content: string): void {
-  chatAttachmentContentMap.set(filename, content)
-}
-
-export function getChatAttachmentContent(filename: string): string | undefined {
-  return chatAttachmentContentMap.get(filename)
-}
 
 function loadSavedSessions(): { sessions: ChatSession[]; activeSessionId: string } {
   if (typeof window !== 'undefined' && window.localStorage) {
@@ -278,9 +274,16 @@ export function setSystemPromptOverride(override?: string): void {
   commit({ ...state, systemPromptOverride: override })
 }
 
-export function resetChat(): void {
+export function resetChat(clearStorage = false): void {
   turnCounter = 0
-  chatAttachmentContentMap.clear()
+  clearChatAttachmentContent()
+  if (clearStorage && typeof window !== "undefined" && window.localStorage) {
+    try {
+      window.localStorage.removeItem(STORAGE_KEY)
+    } catch {
+      // ignore
+    }
+  }
   state = {
     activeSessionId: 'session-1',
     sessions: [],
@@ -417,9 +420,126 @@ interface ModelTurnContext {
   signal: AbortSignal
 }
 
+interface RetrievedChunkMatch {
+  doc: CorpusDocument
+  chunk: DocumentChunk
+  score: number
+}
+
+function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9_-]+/)
+    .filter((t) => t.length > 1)
+}
+
+function deduplicateCitations(citations: WbCitation[]): WbCitation[] {
+  const seen = new Set<string>()
+  const result: WbCitation[] = []
+  for (const cite of citations) {
+    const key = `${cite.documentId}:${cite.page ?? 0}:${cite.section ?? ''}`
+    if (!seen.has(key)) {
+      seen.add(key)
+      result.push(cite)
+    }
+  }
+  return result
+}
+
+function searchCorpusChunks(
+  query: string,
+  docs: CorpusDocument[],
+  targetPath?: string,
+): { matches: RetrievedChunkMatch[]; matchedDocs: CorpusDocument[] } {
+  if (docs.length === 0) return { matches: [], matchedDocs: [] }
+
+  const queryTokens = tokenize(query)
+  const targetTokens = targetPath ? tokenize(targetPath) : []
+  const allTokens = Array.from(new Set([...queryTokens, ...targetTokens]))
+
+  const allChunkMatches: RetrievedChunkMatch[] = []
+  const matchedDocSet = new Map<string, CorpusDocument>()
+
+  for (const doc of docs) {
+    const docFullText = getDocumentFullText(doc)
+    const docTitle = doc.title.toLowerCase()
+
+    // Title score
+    let titleScore = 0
+    if (targetPath) {
+      const lowerTarget = targetPath.toLowerCase()
+      if (docTitle === lowerTarget || docTitle.endsWith(lowerTarget) || lowerTarget.endsWith(docTitle)) {
+        titleScore += 10
+      } else if (docTitle.includes(lowerTarget) || lowerTarget.includes(docTitle)) {
+        titleScore += 5
+      }
+    }
+    for (const t of allTokens) {
+      if (docTitle.includes(t)) {
+        titleScore += 2
+      }
+    }
+
+    // Get chunks
+    let chunks = doc.chunksData
+    if (!chunks || chunks.length === 0) {
+      chunks = createChunksFromText(docFullText)
+    }
+    if (chunks.length === 0 && docFullText.trim()) {
+      chunks = [{ id: 'c1', text: docFullText.trim(), page: 1, section: 'Full Document' }]
+    }
+
+    let docHasPositiveChunk = false
+
+    for (const chunk of chunks) {
+      const chunkText = chunk.text.toLowerCase()
+      const chunkSection = (chunk.section ?? '').toLowerCase()
+      let chunkScore = 0
+
+      for (const token of allTokens) {
+        if (chunkText.includes(token)) {
+          chunkScore += 1
+        }
+        if (chunkSection.includes(token)) {
+          chunkScore += 1.5
+        }
+      }
+
+      const totalScore = chunkScore + titleScore
+      if (totalScore > 0) {
+        docHasPositiveChunk = true
+        allChunkMatches.push({
+          doc,
+          chunk,
+          score: totalScore,
+        })
+      }
+    }
+
+    if (titleScore > 0 && !docHasPositiveChunk && chunks.length > 0) {
+      for (const chunk of chunks) {
+        allChunkMatches.push({
+          doc,
+          chunk,
+          score: titleScore,
+        })
+      }
+      matchedDocSet.set(doc.id, doc)
+    } else if (docHasPositiveChunk) {
+      matchedDocSet.set(doc.id, doc)
+    }
+  }
+
+  allChunkMatches.sort((a, b) => b.score - a.score)
+  const topMatches = allChunkMatches.slice(0, 8)
+  const finalDocs = Array.from(new Set(topMatches.map((m) => m.doc)))
+
+  return { matches: topMatches, matchedDocs: finalDocs }
+}
+
 /**
- * Checks for tool calling intentions (either JSON blocks in model output or direct document queries)
- * and executes them against the SOVRA policy engine.
+ * Checks for tool calling intentions or RAG retrieval needs against the Sovereign Document Corpus
+ * and executes them against the SOVRA policy engine with accurate citations.
  */
 async function handleToolCallingAndPolicy(
   userQuery: string,
@@ -437,7 +557,7 @@ async function handleToolCallingAndPolicy(
   if (jsonMatch && jsonMatch[1]) {
     try {
       const parsed = JSON.parse(jsonMatch[1].trim()) as Record<string, unknown>
-      const path = (parsed.path ?? parsed.file ?? parsed.filename ?? parsed.documentId ?? parsed.request) as string | undefined
+      const path = (parsed.path ?? parsed.file ?? parsed.filename ?? parsed.documentId ?? parsed.request ?? parsed.query ?? parsed.q) as string | undefined
       if (path) {
         targetFilename = path.replace(/^\/Documents\//i, '').replace(/^\.\//, '').replace(/^["']|["']$/g, '').trim()
         toolName = (parsed.tool ?? parsed.actionType ?? parsed.action ?? 'read') as string
@@ -447,52 +567,51 @@ async function handleToolCallingAndPolicy(
     }
   }
 
-  // 2. Fallback: Check if user query explicitly asked to read/access a corpus document
-  if (!targetFilename) {
-    const lowerUserQuery = userQuery.toLowerCase()
-    for (const doc of docs) {
-      const lowerTitle = doc.title.toLowerCase()
-      const baseTitle = lowerTitle.includes('.') ? lowerTitle.split('.')[0]! : lowerTitle
-      if (
-        lowerUserQuery.includes(lowerTitle) ||
-        (baseTitle.length > 2 && lowerUserQuery.includes(baseTitle)) ||
-        (lowerTitle.includes('air-gapped') && lowerUserQuery.includes('air-gapped'))
-      ) {
-        targetFilename = doc.title
-        break
-      }
+  // Perform corpus chunk retrieval
+  const { matches, matchedDocs } = searchCorpusChunks(userQuery, docs, targetFilename)
+
+  if (matchedDocs.length === 0 && !targetFilename) {
+    return false
+  }
+
+  // If specific targetFilename was given but not in top matchedDocs, attempt fallback direct match
+  let targetDocs = matchedDocs
+  if (targetFilename && targetDocs.length === 0) {
+    const direct = docs.find((d) => {
+      const dTitle = d.title.toLowerCase()
+      const tFile = targetFilename!.toLowerCase()
+      return dTitle === tFile || dTitle.includes(tFile) || tFile.includes(dTitle)
+    })
+    if (direct) {
+      targetDocs = [direct]
     }
   }
 
-  if (!targetFilename) return false
-
-  // Find document in corpus
-  const matchedDoc = docs.find((d) => {
-    const dTitle = d.title.toLowerCase()
-    const tFile = targetFilename!.toLowerCase()
-    return dTitle === tFile || dTitle.includes(tFile) || tFile.includes(dTitle)
-  })
-
-  if (!matchedDoc) return false
+  if (targetDocs.length === 0) {
+    return false
+  }
 
   const currentUser = getCurrentUser()
-  const docClassification = (matchedDoc.classification ?? 'INTERNAL').toUpperCase() as WbClassification
-  const docRank = CLASSIFICATION_RANK[docClassification] ?? 1
   const userRank = CLASSIFICATION_RANK[currentUser.clearance] ?? 1
-
-  const callId = `call-${Date.now()}`
-  const docContent = getDocumentFullText(matchedDoc)
   const currentSessionId = asWbSessionId(state.activeSessionId)
   const currentUserId = currentUser.id
+  const callId = `call-${Date.now()}`
 
-  if (docRank > userRank) {
-    // Policy DENY
-    const reason = `Policy DENY: Document "${matchedDoc.title}" classification (${docClassification}) exceeds ${currentUser.displayName}'s clearance (${currentUser.clearance}).`
+  // Evaluate policy on all matched documents
+  const deniedDocs = targetDocs.filter((d) => {
+    const rank = CLASSIFICATION_RANK[(d.classification ?? 'INTERNAL').toUpperCase()] ?? 1
+    return rank > userRank
+  })
+
+  if (deniedDocs.length > 0) {
+    const blockedDoc = deniedDocs[0]!
+    const blockedClass = (blockedDoc.classification ?? 'INTERNAL').toUpperCase() as WbClassification
+    const reason = `Policy DENY: Document "${blockedDoc.title}" classification (${blockedClass}) exceeds ${currentUser.displayName}'s clearance (${currentUser.clearance}).`
 
     upsertToolNode({
       callId,
       name: toolName,
-      args: { path: matchedDoc.title, classification: docClassification },
+      args: { path: blockedDoc.title, classification: blockedClass },
       status: 'denied',
       decision: 'DENY',
       decisionReason: reason,
@@ -503,11 +622,11 @@ async function handleToolCallingAndPolicy(
       sessionId: currentSessionId,
       agentPreset: state.preset,
       action: 'read_data',
-      resource: matchedDoc.id,
+      resource: blockedDoc.id,
       decision: 'DENY',
       reason,
       destination: 'local',
-      classification: docClassification,
+      classification: blockedClass,
     })
 
     publishAuditEntry({
@@ -516,25 +635,54 @@ async function handleToolCallingAndPolicy(
       userId: currentUserId,
       at: new Date().toISOString(),
       kind: 'policy_decision',
-      summary: `Policy DENY: Blocked read of ${docClassification} file "${matchedDoc.title}" for ${currentUser.displayName}`,
-      payload: { decision: 'DENY', name: toolName, value: { path: matchedDoc.title, classification: docClassification } },
+      summary: `Policy DENY: Blocked read of ${blockedClass} file "${blockedDoc.title}" for ${currentUser.displayName}`,
+      payload: { decision: 'DENY', name: toolName, value: { path: blockedDoc.title, classification: blockedClass } },
     })
 
     publishChatDecision('DENY', reason)
 
-    // Remove raw JSON snippet and append clean policy intercept notice
     const cleanText = accumulatedAssistantText.replace(/```(?:json)?\s*[\s\S]*?\s*```/g, '').trim()
-    const denialText = `${cleanText ? cleanText + '\n\n' : ''}🛡️ **Policy Intercept (DENY)**: Access to document \`${matchedDoc.title}\` (Classification: \`${docClassification}\`) was evaluated and **blocked** by the SOVRA Policy Engine.\n\n*Reason*: The document's classification level (\`${docClassification}\`) exceeds your current session clearance (\`${currentUser.clearance}\` for user **${currentUser.displayName}**). Switch to a user with \`${docClassification}\` or \`RESTRICTED\` clearance to access this document.`
+    const denialText = `${cleanText ? cleanText + '\n\n' : ''}🛡️ **Policy Intercept (DENY)**: Access to document \`${blockedDoc.title}\` (Classification: \`${blockedClass}\`) was evaluated and **blocked** by the SOVRA Policy Engine.
+
+*Reason*: The document's classification level (\`${blockedClass}\`) exceeds your current session clearance (\`${currentUser.clearance}\` for user **${currentUser.displayName}**). Switch to a user with \`${blockedClass}\` or \`RESTRICTED\` clearance to access this document.`
     replaceLastAssistantText(denialText)
     return true
+  }
+
+  // Policy ALLOW for all retrieved documents
+  const allowedMatches = matches.filter((m) => targetDocs.some((d) => d.id === m.doc.id))
+
+  // Generate citations accurately from matching chunks and documents
+  let rawCitations: WbCitation[] = []
+  if (allowedMatches.length > 0) {
+    rawCitations = allowedMatches.map((m) => ({
+      documentId: m.doc.id,
+      title: m.doc.title,
+      ...(m.chunk.page !== undefined ? { page: m.chunk.page } : {}),
+      ...(m.chunk.section !== undefined ? { section: m.chunk.section } : {}),
+    }))
   } else {
-    // Policy ALLOW
+    rawCitations = targetDocs.map((doc) => ({
+      documentId: doc.id,
+      title: doc.title,
+      page: 1,
+      section: 'Full Document',
+    }))
+  }
+
+  const citations = deduplicateCitations(rawCitations)
+  attachCitations(citations)
+  publishRetrievalCitations(citations)
+
+  for (const doc of targetDocs) {
+    const docClassification = (doc.classification ?? 'INTERNAL').toUpperCase() as WbClassification
+    const docContent = getDocumentFullText(doc)
     const reason = `Policy ALLOW: User ${currentUser.displayName} clearance (${currentUser.clearance}) satisfies classification (${docClassification}) for tool "${toolName}".`
 
     upsertToolNode({
-      callId,
+      callId: `${callId}-${doc.id}`,
       name: toolName,
-      args: { path: matchedDoc.title, classification: docClassification },
+      args: { path: doc.title, classification: docClassification },
       status: 'done',
       decision: 'ALLOW',
       result: docContent || '(Document is empty)',
@@ -545,7 +693,7 @@ async function handleToolCallingAndPolicy(
       sessionId: currentSessionId,
       agentPreset: state.preset,
       action: 'read_data',
-      resource: matchedDoc.id,
+      resource: doc.id,
       decision: 'ALLOW',
       reason,
       destination: 'local',
@@ -553,70 +701,87 @@ async function handleToolCallingAndPolicy(
     })
 
     publishAuditEntry({
-      id: asWbAuditEntryId(`audit-${Date.now()}`),
+      id: asWbAuditEntryId(`audit-${Date.now()}-${doc.id}`),
       sessionId: currentSessionId,
       userId: currentUserId,
       at: new Date().toISOString(),
       kind: 'policy_decision',
-      summary: `Policy ALLOW: Permitted read of ${docClassification} file "${matchedDoc.title}" for ${currentUser.displayName}`,
-      payload: { decision: 'ALLOW', name: toolName, value: { path: matchedDoc.title, classification: docClassification } },
+      summary: `Policy ALLOW: Permitted read of ${docClassification} file "${doc.title}" for ${currentUser.displayName}`,
+      payload: { decision: 'ALLOW', name: toolName, value: { path: doc.title, classification: docClassification } },
     })
 
     publishAuditEntry({
-      id: asWbAuditEntryId(`audit-${Date.now() + 1}`),
+      id: asWbAuditEntryId(`audit-${Date.now() + 1}-${doc.id}`),
       sessionId: currentSessionId,
       userId: currentUserId,
       at: new Date().toISOString(),
       kind: 'tool_result',
-      summary: `Tool ${toolName} completed for "${matchedDoc.title}"`,
-      payload: { name: toolName, value: { path: matchedDoc.title, size: docContent.length } },
+      summary: `Tool ${toolName} completed for "${doc.title}"`,
+      payload: { name: toolName, value: { path: doc.title, size: docContent.length } },
     })
+  }
 
-    publishChatDecision('ALLOW', '')
+  publishChatDecision('ALLOW', '')
 
-    const citations: WbCitation[] = [
-      {
-        documentId: matchedDoc.id,
-        title: matchedDoc.title,
-        page: 1,
-        section: 'Full Document',
-      },
-    ]
-    attachCitations(citations)
-    publishRetrievalCitations(citations)
+  // Clear raw JSON tool request to stream grounded model interpretation
+  replaceLastAssistantText('')
 
-    // Clear previous assistant text (e.g. raw JSON tool request) to stream model interpretation
-    replaceLastAssistantText('')
-
-    if (modelContext) {
-      const priorTurns = modelContext.turnMessages.slice(0, -1)
-      const followUpMessages = [
-        { role: 'system', content: modelContext.systemPrompt },
-        ...priorTurns,
-        {
-          role: 'user',
-          content: `${userQuery}\n\n[Context from retrieved document "${matchedDoc.title}" (${docClassification})]:\n"""\n${docContent}\n"""\n\nPlease analyze, summarize, or answer based on the above retrieved document content according to my request. Do not dump the entire raw file verbatim; provide your interpretation and structured answer directly.`,
-        },
-      ]
-
-      const followUpOutput = await streamCompletion(
-        modelContext.url,
-        modelContext.modelName,
-        followUpMessages,
-        modelContext.contextLength,
-        modelContext.signal,
-        (delta) => appendDelta(delta),
-      )
-
-      if (!followUpOutput || followUpOutput.trim() === '') {
-        replaceLastAssistantText(
-          `I have reviewed **${matchedDoc.title}** [${docClassification}].\n\n${docContent.slice(0, 400)}${docContent.length > 400 ? '...' : ''}`,
-        )
-      }
+  if (modelContext) {
+    let formattedContext = ''
+    if (allowedMatches.length > 0) {
+      formattedContext = allowedMatches
+        .map((m) => {
+          const loc = m.chunk.page ? `Page ${m.chunk.page}` : m.chunk.section ? `Section ${m.chunk.section}` : ''
+          const header = `[Document: "${m.doc.title}" (${m.doc.classification}${loc ? `, ${loc}` : ''})]`
+          return `${header}
+"""\n${m.chunk.text}\n"""`
+        })
+        .join('\n\n')
+    } else {
+      formattedContext = targetDocs
+        .map((doc) => `[Document: "${doc.title}" (${doc.classification})]:
+"""
+${getDocumentFullText(doc)}
+"""`)
+        .join('\n\n')
     }
 
-    return true
+    const priorTurns = modelContext.turnMessages.slice(0, -1)
+    const followUpMessages = [
+      { role: 'system', content: modelContext.systemPrompt },
+      ...priorTurns,
+      {
+        role: 'user',
+        content: `${userQuery}
+
+[Context from retrieved sovereign documents]:
+${formattedContext}
+
+Please analyze, summarize, or answer based on the above retrieved document content according to my request. Cite sources using [1], [2] notation corresponding to retrieved documents. Do not dump the raw files verbatim; provide your interpretation and structured answer directly.`,
+      },
+    ]
+
+    const followUpOutput = await streamCompletion(
+      modelContext.url,
+      modelContext.modelName,
+      followUpMessages,
+      modelContext.contextLength,
+      modelContext.signal,
+      (delta) => appendDelta(delta),
+    )
+
+    if (!followUpOutput || followUpOutput.trim() === '') {
+      const firstDoc = targetDocs[0]!
+      const firstContent = getDocumentFullText(firstDoc)
+      replaceLastAssistantText(
+        `I have reviewed the relevant documents including **${firstDoc.title}** [${firstDoc.classification}].
+
+${firstContent.slice(0, 400)}${firstContent.length > 400 ? '...' : ''}`,
+      )
+    }
   }
+
+  return true
 }
 
 function replaceLastAssistantText(newText: string): void {
@@ -708,22 +873,13 @@ function withLastTurn(
   if (state.turns.length === 0) return { turns: [], sessions: state.sessions }
   const lastIndex = state.turns.length - 1
   const updatedTurn = updater(state.turns[lastIndex]!)
-  const turns = state.turns.slice()
-  turns[lastIndex] = updatedTurn
-
+  const turns = state.turns.map((t, idx) => (idx === lastIndex ? updatedTurn : t))
   const sessions = state.sessions.map((s) =>
-    s.id === state.activeSessionId
-      ? { ...s, turns, updatedAt: new Date().toISOString() }
-      : s,
+    s.id === state.activeSessionId ? { ...s, turns, updatedAt: new Date().toISOString() } : s,
   )
-
   return { turns, sessions }
 }
 
-/**
- * Append streamed text to the open assistant turn.
- * @param delta - the text fragment received.
- */
 export function appendDelta(delta: string): void {
   const { turns, sessions } = withLastTurn((turn) => ({
     ...turn,
@@ -732,42 +888,26 @@ export function appendDelta(delta: string): void {
   commit({ ...state, turns, sessions })
 }
 
-/**
- * Finish streaming the current turn.
- * @param failureReason - optional error message to write to the turn.
- */
-export function finishTurn(failureReason?: string): void {
+export function finishTurn(errorText?: string): void {
   const { turns, sessions } = withLastTurn((turn) => ({
     ...turn,
-    text: failureReason ? `${turn.text}${turn.text ? '\n' : ''}${failureReason}` : turn.text,
+    text: errorText ? `${turn.text}${turn.text ? '\n\n' : ''}${errorText}` : turn.text,
     streaming: false,
   }))
   commit({
     ...state,
-    generating: false,
-    abort: undefined,
     turns,
     sessions,
+    generating: false,
+    abort: undefined,
   })
 }
 
-/**
- * Abort active generation.
- */
 export function abortTurn(): boolean {
-  if (!state.generating) return false
-  state.abort?.abort()
-  const { turns, sessions } = withLastTurn((turn) => ({
-    ...turn,
-    text: `${turn.text}${turn.text ? '\n' : ''}[Generation stopped by user]`,
-    streaming: false,
-  }))
-  commit({
-    ...state,
-    generating: false,
-    abort: undefined,
-    turns,
-    sessions,
-  })
+  if (!state.generating || !state.abort) {
+    return false
+  }
+  state.abort.abort()
+  finishTurn('[Generation stopped by user]')
   return true
 }

@@ -10,6 +10,7 @@ import {
   createChunksFromText,
   markUploading,
   queueUpload,
+  resetDocuments,
 } from '../live/documents-store.ts'
 
 /** What the ingest pipeline can read; anything else is refused before upload. */
@@ -122,6 +123,16 @@ export function DocumentsView({ onIngest }: DocumentsViewProps) {
         <button type="button" className={styles.uploadButton} onClick={() => input.current?.click()}>
           Upload documents
         </button>
+        {documents.length > 0 ? (
+          <button
+            type="button"
+            className={styles.clearButton}
+            onClick={() => resetDocuments(true)}
+            title="Clear all uploaded documents"
+          >
+            Clear all
+          </button>
+        ) : null}
         <input
           ref={input}
           type="file"

@@ -62,6 +62,23 @@ export interface DocumentsState {
 
 export const INITIAL_DOCUMENTS: DocumentsState = { documents: [], uploads: [] }
 
+const chatAttachmentContentMap = new Map<string, string>()
+
+/**
+ * Register the text content of a file attached directly in the chat.
+ */
+export function registerChatAttachmentContent(filename: string, content: string): void {
+  chatAttachmentContentMap.set(filename, content)
+}
+
+export function getChatAttachmentContent(filename: string): string | undefined {
+  return chatAttachmentContentMap.get(filename)
+}
+
+export function clearChatAttachmentContent(): void {
+  chatAttachmentContentMap.clear()
+}
+
 export function createChunksFromText(text: string): DocumentChunk[] {
   const paragraphs = text
     .split(/\n\s*\n/)
@@ -78,12 +95,15 @@ export function createChunksFromText(text: string): DocumentChunk[] {
   let chunkIdx = 1
 
   for (const para of paragraphs) {
+    const headerMatch = para.match(/^#{1,4}\s+(.+)$/m)
+    const sectionName = headerMatch ? headerMatch[1] : `Section ${chunkIdx}`
+
     if (currentText.length + para.length > 500 && currentText.length > 0) {
       chunks.push({
         id: `c${chunkIdx}`,
         text: currentText.trim(),
         page: pageNum,
-        section: `Section ${chunkIdx}`,
+        section: sectionName,
       })
       chunkIdx++
       currentText = ''
@@ -93,11 +113,13 @@ export function createChunksFromText(text: string): DocumentChunk[] {
   }
 
   if (currentText.trim()) {
+    const headerMatch = currentText.match(/^#{1,4}\s+(.+)$/m)
+    const sectionName = headerMatch ? headerMatch[1] : `Section ${chunkIdx}`
     chunks.push({
       id: `c${chunkIdx}`,
       text: currentText.trim(),
       page: pageNum,
-      section: `Section ${chunkIdx}`,
+      section: sectionName,
     })
   }
 
@@ -114,6 +136,10 @@ export function getDocumentFullText(doc: CorpusDocument): string {
   }
   if (doc.chunksData && doc.chunksData.length > 0) {
     return doc.chunksData.map((c) => c.text).filter(Boolean).join('\n\n')
+  }
+  const chatAtt = getChatAttachmentContent(doc.title)
+  if (chatAtt && chatAtt.trim()) {
+    return chatAtt
   }
   if (
     doc.title.toLowerCase().includes('air-gapped') ||
@@ -267,6 +293,7 @@ export function setDocuments(documents: readonly CorpusDocument[]): void {
 
 export function resetDocuments(clearStorage = false): void {
   uploadCounter = 0
+  chatAttachmentContentMap.clear()
   if (clearStorage && typeof window !== 'undefined' && window.localStorage) {
     try {
       window.localStorage.removeItem(STORAGE_KEY)
