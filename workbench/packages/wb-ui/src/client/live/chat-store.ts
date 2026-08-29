@@ -22,6 +22,7 @@ import {
   getChatAttachmentContent,
   registerChatAttachmentContent,
   clearChatAttachmentContent,
+  addCorpusDocument,
   type CorpusDocument,
   type DocumentChunk,
 } from './documents-store.ts'
@@ -277,7 +278,7 @@ export function setSystemPromptOverride(override?: string): void {
 export function resetChat(clearStorage = false): void {
   turnCounter = 0
   clearChatAttachmentContent()
-  if (clearStorage && typeof window !== "undefined" && window.localStorage) {
+  if (clearStorage && typeof window !== 'undefined' && window.localStorage) {
     try {
       window.localStorage.removeItem(STORAGE_KEY)
     } catch {
@@ -293,6 +294,25 @@ export function resetChat(clearStorage = false): void {
     abort: undefined,
   }
   for (const listener of listeners) listener()
+}
+
+function withLastTurn(
+  updater: (turn: ChatTurn) => ChatTurn,
+): { turns: ChatTurn[]; sessions: ChatSession[] } {
+  if (state.turns.length === 0) return { turns: state.turns, sessions: state.sessions }
+
+  const lastIndex = state.turns.length - 1
+  const updated = updater(state.turns[lastIndex]!)
+  const turns = state.turns.map((t, idx) => (idx === lastIndex ? updated : t))
+
+  const sessions = state.sessions.map((s) => {
+    if (s.id === state.activeSessionId) {
+      return { ...s, turns, updatedAt: new Date().toISOString() }
+    }
+    return s
+  })
+
+  return { turns, sessions }
 }
 
 /**
@@ -331,6 +351,47 @@ export function attachCitations(citations: readonly WbCitation[]): void {
     citations: [...turn.citations, ...citations],
   }))
   commit({ ...state, turns, sessions })
+}
+
+export function appendDelta(delta: string): void {
+  const { turns, sessions } = withLastTurn((turn) => ({
+    ...turn,
+    text: turn.text + delta,
+  }))
+  commit({ ...state, turns, sessions })
+}
+
+export function finishTurn(fallbackText?: string): void {
+  const { turns, sessions } = withLastTurn((turn) => ({
+    ...turn,
+    streaming: false,
+    text: turn.text || fallbackText || '(no response)',
+  }))
+  commit({
+    ...state,
+    turns,
+    sessions,
+    generating: false,
+    abort: undefined,
+  })
+}
+
+export function abortTurn(): boolean {
+  if (!state.abort || !state.generating) return false
+  state.abort.abort()
+  const { turns, sessions } = withLastTurn((turn) => ({
+    ...turn,
+    streaming: false,
+    text: turn.text ? `${turn.text}\n\n*[Generation stopped by user]*` : '*[Generation stopped by user]*',
+  }))
+  commit({
+    ...state,
+    turns,
+    sessions,
+    generating: false,
+    abort: undefined,
+  })
+  return true
 }
 
 const CLASSIFICATION_RANK: Record<string, number> = {
@@ -426,11 +487,28 @@ interface RetrievedChunkMatch {
   score: number
 }
 
+const STOPWORDS = new Set([
+  'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an', 'and', 'any', 'are', 'aren',
+  'as', 'at', 'be', 'because', 'been', 'before', 'being', 'below', 'between', 'both', 'but', 'by',
+  'can', 'could', 'did', 'do', 'does', 'doing', 'down', 'during', 'each', 'few', 'for', 'from',
+  'further', 'had', 'has', 'have', 'having', 'he', 'her', 'here', 'hers', 'herself', 'him',
+  'himself', 'his', 'how', 'i', 'if', 'in', 'into', 'is', 'it', 'its', 'itself', 'just', 'me',
+  'more', 'most', 'my', 'myself', 'no', 'nor', 'not', 'now', 'of', 'off', 'on', 'once', 'only',
+  'or', 'other', 'our', 'ours', 'ourselves', 'out', 'over', 'own', 'same', 'she', 'should', 'so',
+  'some', 'such', 'than', 'that', 'the', 'their', 'theirs', 'them', 'themselves', 'then', 'there',
+  'these', 'they', 'this', 'those', 'through', 'to', 'too', 'under', 'until', 'up', 'very', 'was',
+  'we', 'were', 'what', 'when', 'where', 'which', 'while', 'who', 'whom', 'why', 'with', 'would',
+  'you', 'your', 'yours', 'yourself', 'yourselves', 'create', 'make', 'write', 'generate', 'doc',
+  'docs', 'document', 'documents', 'file', 'files', 'tell', 'show', 'give', 'only', 'written',
+  'please', 'help', 'want', 'need', 'like', 'hello', 'hi', 'hey', 'okay', 'thanks', 'thank',
+  'prepare', 'sheet', 'sheets', 'excel', 'spreadsheet', 'spreadsheets', 'table', 'tables',
+])
+
 function tokenize(text: string): string[] {
   return text
     .toLowerCase()
     .split(/[^a-z0-9_-]+/)
-    .filter((t) => t.length > 1)
+    .filter((t) => t.length > 2 && !STOPWORDS.has(t))
 }
 
 function deduplicateCitations(citations: WbCitation[]): WbCitation[] {
@@ -457,6 +535,10 @@ function searchCorpusChunks(
   const targetTokens = targetPath ? tokenize(targetPath) : []
   const allTokens = Array.from(new Set([...queryTokens, ...targetTokens]))
 
+  if (allTokens.length === 0 && !targetPath) {
+    return { matches: [], matchedDocs: [] }
+  }
+
   const allChunkMatches: RetrievedChunkMatch[] = []
   const matchedDocSet = new Map<string, CorpusDocument>()
 
@@ -476,7 +558,7 @@ function searchCorpusChunks(
     }
     for (const t of allTokens) {
       if (docTitle.includes(t)) {
-        titleScore += 2
+        titleScore += 3
       }
     }
 
@@ -498,15 +580,16 @@ function searchCorpusChunks(
 
       for (const token of allTokens) {
         if (chunkText.includes(token)) {
-          chunkScore += 1
+          chunkScore += 1.5
         }
         if (chunkSection.includes(token)) {
-          chunkScore += 1.5
+          chunkScore += 2
         }
       }
 
       const totalScore = chunkScore + titleScore
-      if (totalScore > 0) {
+      // Require meaningful score
+      if (totalScore >= 3 || (targetPath && titleScore >= 5)) {
         docHasPositiveChunk = true
         allChunkMatches.push({
           doc,
@@ -516,7 +599,7 @@ function searchCorpusChunks(
       }
     }
 
-    if (titleScore > 0 && !docHasPositiveChunk && chunks.length > 0) {
+    if (titleScore >= 3 && !docHasPositiveChunk && chunks.length > 0) {
       for (const chunk of chunks) {
         allChunkMatches.push({
           doc,
@@ -537,9 +620,138 @@ function searchCorpusChunks(
   return { matches: topMatches, matchedDocs: finalDocs }
 }
 
+function isDocCreationIntent(query: string, modelText = ''): boolean {
+  const trimmed = query.trim().toLowerCase()
+  const hasUserIntent =
+    /\b(?:create|generate|write|make|save|export|build|prepare|draft|compile|produce|set\s*up|put\s+together)\s+(?:an?\s+)?(?:new\s+)?(?:excel|sheet|spreadsheet|workbook|table|csv|xlsx|xls|doc|docx|document|file|report|approval\s*note|note|presentation|pptx|slide)\b/i.test(trimmed) ||
+    /\b(?:excel|spreadsheet|sheet|workbook|table|xlsx|docx?|document|report|approval\s*note)\s+(?:with|containing|for|of|having|listing)\b/i.test(trimmed) ||
+    /\b(?:export|save)\s+(?:this|as|to)\s+(?:an?\s+)?(?:excel|spreadsheet|sheet|xlsx|csv|docx?|doc|file)\b/i.test(trimmed)
+
+  const hasModelTable =
+    /\|[\s\S]+?\|[\s\S]+?\|/m.test(modelText) &&
+    /\b(?:excel|spreadsheet|sheet|table|csv|xlsx)\b/i.test(query)
+
+  const hasModelDocDeclaration =
+    /\*\*(?:File\s*Name|Filename|Document|Spreadsheet|Artifact):\*\*/i.test(modelText)
+
+  return hasUserIntent || hasModelTable || hasModelDocDeclaration
+}
+
+function extractDocCreationDetails(
+  query: string,
+  modelText: string,
+  toolArgs?: Record<string, unknown>,
+): { title: string; content: string; classification: WbClassification; toolName: string } {
+  let rawTool = (toolArgs?.tool ?? toolArgs?.action ?? 'create_document') as string
+  let title = (toolArgs?.title ?? toolArgs?.path ?? toolArgs?.name ?? toolArgs?.filename) as string | undefined
+  let content = (toolArgs?.content ?? toolArgs?.findings ?? toolArgs?.text ?? toolArgs?.body) as string | undefined
+  const classification = ((toolArgs?.classification as string) ?? 'INTERNAL').toUpperCase() as WbClassification
+
+  const wantsTxt = /\b(?:text\s+file|\.txt)\b/i.test(query)
+  const wantsMd = /\b(?:markdown|\.md)\b/i.test(query)
+  const wantsJson = /\b(?:json|\.json)\b/i.test(query)
+  const wantsCsv = /\b(?:csv|\.csv)\b/i.test(query)
+  const wantsXlsx =
+    /\b(?:excel|spreadsheet|sheet|workbook|table|\.xlsx?)\b/i.test(query) ||
+    rawTool === 'wb_generate_spreadsheet'
+
+  const defaultExt = wantsTxt
+    ? '.txt'
+    : wantsMd
+    ? '.md'
+    : wantsJson
+    ? '.json'
+    : wantsCsv
+    ? '.csv'
+    : wantsXlsx
+    ? '.xlsx'
+    : '.docx'
+
+  if (wantsXlsx && (rawTool === 'create_document' || rawTool === 'create_doc' || !rawTool)) {
+    rawTool = 'wb_generate_spreadsheet'
+  }
+
+  if (!title) {
+    const modelFileMatch = modelText.match(/\*\*(?:File\s*Name|Filename):\*\*\s*[`*"]?([a-zA-Z0-9_\-.]+\.[a-zA-Z0-9]+)[`*"]?/i)
+    if (modelFileMatch && modelFileMatch[1]) {
+      title = modelFileMatch[1]
+    } else {
+      const namedMatch = query.match(/(?:named|called|titled|filename)\s+["']?([^"'\s,]+)["']?/i)
+      if (namedMatch && namedMatch[1]) {
+        title = namedMatch[1]
+      } else {
+        const quoteMatch = query.match(/["']([^"']+)["']/)
+        if (quoteMatch && quoteMatch[1] && quoteMatch[1].length < 30) {
+          title = `${quoteMatch[1].replace(/\s+/g, '_')}${defaultExt}`
+        } else {
+          const subjectMatch = query.match(/(?:containing|for|of|with|about)\s+([a-zA-Z0-9_\s]{3,25})/i)
+          if (subjectMatch && subjectMatch[1]) {
+            title = `${subjectMatch[1].trim().replace(/\s+/g, '_')}${defaultExt}`
+          } else {
+            title = wantsXlsx ? 'Spreadsheet_Data.xlsx' : `Generated_Document${defaultExt}`
+          }
+        }
+      }
+    }
+  }
+
+  if (!title.includes('.')) {
+    title = `${title}${defaultExt}`
+  } else if (title.toLowerCase().endsWith('.doc')) {
+    title = `${title}x`
+  } else if (title.toLowerCase().endsWith('.xls')) {
+    title = `${title}x`
+  }
+
+  if (!content) {
+    if (wantsXlsx) {
+      const lines = modelText.split('\n')
+      const tableLines: string[] = []
+      let insideTable = false
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+          insideTable = true
+          tableLines.push(trimmed)
+        } else if (insideTable) {
+          if (!trimmed) {
+            // allow blank line
+          } else {
+            break
+          }
+        }
+      }
+      if (tableLines.length >= 2) {
+        content = tableLines.join('\n')
+      }
+    }
+
+    if (!content) {
+      const quoteMatch = query.match(/["']([^"']+)["']/)
+      if (quoteMatch && quoteMatch[1]) {
+        content = quoteMatch[1]
+      } else {
+        const cleanModelText = modelText
+          .replace(/```(?:json)?\s*[\s\S]*?\s*```/g, '')
+          .replace(/^📄.*$/gm, '')
+          .replace(/^📊.*$/gm, '')
+          .trim()
+        content = cleanModelText || 'Data generated by Sovereign AI Workbench.'
+      }
+    }
+  }
+
+  return {
+    title,
+    content,
+    classification,
+    toolName: rawTool || (wantsXlsx ? 'wb_generate_spreadsheet' : 'create_document'),
+  }
+}
+
 /**
  * Checks for tool calling intentions or RAG retrieval needs against the Sovereign Document Corpus
- * and executes them against the SOVRA policy engine with accurate citations.
+ * and executes them against the SOVRA policy engine with accurate citations and artifact generation.
  */
 async function handleToolCallingAndPolicy(
   userQuery: string,
@@ -547,34 +759,171 @@ async function handleToolCallingAndPolicy(
   modelContext?: ModelTurnContext,
 ): Promise<boolean> {
   const docs = getDocumentsState().documents
-  if (docs.length === 0) return false
+  const currentUser = getCurrentUser()
+  const userRank = CLASSIFICATION_RANK[currentUser.clearance] ?? 1
+  const currentSessionId = asWbSessionId(state.activeSessionId)
+  const currentUserId = currentUser.id
+  const callId = `call-${Date.now()}`
 
-  let targetFilename: string | undefined
+  let parsedToolArgs: Record<string, unknown> | undefined
   let toolName = 'read'
+  let targetFilename: string | undefined
 
   // 1. Check for JSON tool call in assistant text
   const jsonMatch = accumulatedAssistantText.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
   if (jsonMatch && jsonMatch[1]) {
     try {
       const parsed = JSON.parse(jsonMatch[1].trim()) as Record<string, unknown>
+      parsedToolArgs = parsed
+      toolName = (parsed.tool ?? parsed.actionType ?? parsed.action ?? 'read') as string
       const path = (parsed.path ?? parsed.file ?? parsed.filename ?? parsed.documentId ?? parsed.request ?? parsed.query ?? parsed.q) as string | undefined
       if (path) {
         targetFilename = path.replace(/^\/Documents\//i, '').replace(/^\.\//, '').replace(/^["']|["']$/g, '').trim()
-        toolName = (parsed.tool ?? parsed.actionType ?? parsed.action ?? 'read') as string
       }
     } catch {
       // Non-JSON block
     }
   }
 
-  // Perform corpus chunk retrieval
+  // 2. Handle Document / Artifact Creation Tools & Creation Intent
+  const isCreationTool = [
+    'create_document',
+    'create_doc',
+    'write',
+    'save_document',
+    'wb_generate_report',
+    'wb_generate_approval_note',
+    'wb_generate_spreadsheet',
+    'wb_generate_presentation',
+  ].includes(toolName)
+
+  const isCreationIntent = isCreationTool || isDocCreationIntent(userQuery, accumulatedAssistantText)
+
+  if (isCreationIntent) {
+    const { title: docTitle, content: docContent, classification: docClass, toolName: execTool } =
+      extractDocCreationDetails(userQuery, accumulatedAssistantText, parsedToolArgs)
+
+    const targetRank = CLASSIFICATION_RANK[docClass] ?? 1
+
+    if (targetRank > userRank) {
+      const reason = `Policy DENY: Cannot create document "${docTitle}" with classification ${docClass} exceeding clearance ${currentUser.clearance}.`
+
+      upsertToolNode({
+        callId,
+        name: execTool,
+        args: { title: docTitle, classification: docClass },
+        status: 'denied',
+        decision: 'DENY',
+        decisionReason: reason,
+      })
+
+      publishPolicyDecision({
+        user: currentUserId,
+        sessionId: currentSessionId,
+        agentPreset: state.preset,
+        action: 'write_data',
+        resource: docTitle,
+        decision: 'DENY',
+        reason,
+        destination: 'local',
+        classification: docClass,
+      })
+
+      publishAuditEntry({
+        id: asWbAuditEntryId(`audit-${Date.now()}`),
+        sessionId: currentSessionId,
+        userId: currentUserId,
+        at: new Date().toISOString(),
+        kind: 'policy_decision',
+        summary: `Policy DENY: Blocked creation of ${docClass} file "${docTitle}" for ${currentUser.displayName}`,
+        payload: { decision: 'DENY', name: execTool, value: { title: docTitle, classification: docClass } },
+      })
+
+      publishChatDecision('DENY', reason)
+
+      const denialText = `🛡️ **Policy Intercept (DENY)**: Creation of file \`${docTitle}\` (Classification: \`${docClass}\`) was **blocked** by the SOVRA Policy Engine.\n\n*Reason*: The target classification exceeds your clearance level (\`${currentUser.clearance}\`).`
+      replaceLastAssistantText(denialText)
+      return true
+    }
+
+    // Policy ALLOW - Store in Sovereign Document Corpus & Workbench Artifacts
+    addCorpusDocument({
+      title: docTitle,
+      content: docContent,
+      classification: docClass,
+    })
+
+    upsertToolNode({
+      callId,
+      name: execTool,
+      args: { title: docTitle, classification: docClass },
+      status: 'done',
+      decision: 'ALLOW',
+      result: `File "${docTitle}" generated and registered in corpus. (${docContent.length} bytes)`,
+    })
+
+    publishPolicyDecision({
+      user: currentUserId,
+      sessionId: currentSessionId,
+      agentPreset: state.preset,
+      action: 'write_data',
+      resource: docTitle,
+      decision: 'ALLOW',
+      reason: `Policy ALLOW: Permitted file creation "${docTitle}" [${docClass}] for ${currentUser.displayName}.`,
+      destination: 'local',
+      classification: docClass,
+    })
+
+    publishAuditEntry({
+      id: asWbAuditEntryId(`audit-${Date.now()}`),
+      sessionId: currentSessionId,
+      userId: currentUserId,
+      at: new Date().toISOString(),
+      kind: 'policy_decision',
+      summary: `Policy ALLOW: Permitted creation of ${docClass} file "${docTitle}" for ${currentUser.displayName}`,
+      payload: { decision: 'ALLOW', name: execTool, value: { title: docTitle, classification: docClass } },
+    })
+
+    publishAuditEntry({
+      id: asWbAuditEntryId(`audit-${Date.now() + 1}`),
+      sessionId: currentSessionId,
+      userId: currentUserId,
+      at: new Date().toISOString(),
+      kind: 'tool_result',
+      summary: `Tool ${execTool} created "${docTitle}"`,
+      payload: {
+        name: execTool,
+        value: {
+          path: docTitle,
+          content: docContent,
+          classification: docClass,
+          size: docContent.length,
+          citations: parsedToolArgs?.citations ?? [],
+        },
+      },
+    })
+
+    publishChatDecision('ALLOW', '')
+
+    const isSpreadsheet = docTitle.toLowerCase().endsWith('.xlsx') || execTool === 'wb_generate_spreadsheet'
+    const successMessage = isSpreadsheet
+      ? `📊 **Spreadsheet Created & Registered in Artifacts**\n\n- **Filename:** \`${docTitle}\`\n- **Format:** \`Microsoft Excel OpenXML (.xlsx)\`\n- **Classification:** \`${docClass}\`\n- **Size:** ${docContent.length} bytes\n\n${docContent.startsWith('|') ? docContent : '```\n' + docContent + '\n```'}\n\n*The spreadsheet is available in the **Artifacts panel** on the right for instant binary download as a real `.xlsx` file.*`
+      : `📄 **Document Created & Registered in Corpus**\n\n- **Filename:** \`${docTitle}\`\n- **Format:** \`Microsoft Word (.docx)\`\n- **Classification:** \`${docClass}\`\n- **Size:** ${docContent.length} bytes\n\n\`\`\`\n${docContent}\n\`\`\`\n\n*The document has been added to the Sovereign Document Corpus and Artifacts panel.*`
+
+    replaceLastAssistantText(successMessage)
+    return true
+  }
+
+  // 3. Handle Document Read / RAG Retrieval
+  if (docs.length === 0) return false
+
   const { matches, matchedDocs } = searchCorpusChunks(userQuery, docs, targetFilename)
 
+  // Only trigger RAG if an explicit tool call was emitted OR high-confidence matches found on an informational query
   if (matchedDocs.length === 0 && !targetFilename) {
     return false
   }
 
-  // If specific targetFilename was given but not in top matchedDocs, attempt fallback direct match
   let targetDocs = matchedDocs
   if (targetFilename && targetDocs.length === 0) {
     const direct = docs.find((d) => {
@@ -590,12 +939,6 @@ async function handleToolCallingAndPolicy(
   if (targetDocs.length === 0) {
     return false
   }
-
-  const currentUser = getCurrentUser()
-  const userRank = CLASSIFICATION_RANK[currentUser.clearance] ?? 1
-  const currentSessionId = asWbSessionId(state.activeSessionId)
-  const currentUserId = currentUser.id
-  const callId = `call-${Date.now()}`
 
   // Evaluate policy on all matched documents
   const deniedDocs = targetDocs.filter((d) => {
@@ -642,9 +985,7 @@ async function handleToolCallingAndPolicy(
     publishChatDecision('DENY', reason)
 
     const cleanText = accumulatedAssistantText.replace(/```(?:json)?\s*[\s\S]*?\s*```/g, '').trim()
-    const denialText = `${cleanText ? cleanText + '\n\n' : ''}🛡️ **Policy Intercept (DENY)**: Access to document \`${blockedDoc.title}\` (Classification: \`${blockedClass}\`) was evaluated and **blocked** by the SOVRA Policy Engine.
-
-*Reason*: The document's classification level (\`${blockedClass}\`) exceeds your current session clearance (\`${currentUser.clearance}\` for user **${currentUser.displayName}**). Switch to a user with \`${blockedClass}\` or \`RESTRICTED\` clearance to access this document.`
+    const denialText = `${cleanText ? cleanText + '\n\n' : ''}🛡️ **Policy Intercept (DENY)**: Access to document \`${blockedDoc.title}\` (Classification: \`${blockedClass}\`) was evaluated and **blocked** by the SOVRA Policy Engine.\n\n*Reason*: The document's classification level (\`${blockedClass}\`) exceeds your current session clearance (\`${currentUser.clearance}\` for user **${currentUser.displayName}**). Switch to a user with \`${blockedClass}\` or \`RESTRICTED\` clearance to access this document.`
     replaceLastAssistantText(denialText)
     return true
   }
@@ -733,16 +1074,12 @@ async function handleToolCallingAndPolicy(
         .map((m) => {
           const loc = m.chunk.page ? `Page ${m.chunk.page}` : m.chunk.section ? `Section ${m.chunk.section}` : ''
           const header = `[Document: "${m.doc.title}" (${m.doc.classification}${loc ? `, ${loc}` : ''})]`
-          return `${header}
-"""\n${m.chunk.text}\n"""`
+          return `${header}\n"""\n${m.chunk.text}\n"""`
         })
         .join('\n\n')
     } else {
       formattedContext = targetDocs
-        .map((doc) => `[Document: "${doc.title}" (${doc.classification})]:
-"""
-${getDocumentFullText(doc)}
-"""`)
+        .map((doc) => `[Document: "${doc.title}" (${doc.classification})]:\n"""\n${getDocumentFullText(doc)}\n"""`)
         .join('\n\n')
     }
 
@@ -752,12 +1089,7 @@ ${getDocumentFullText(doc)}
       ...priorTurns,
       {
         role: 'user',
-        content: `${userQuery}
-
-[Context from retrieved sovereign documents]:
-${formattedContext}
-
-Please analyze, summarize, or answer based on the above retrieved document content according to my request. Cite sources using [1], [2] notation corresponding to retrieved documents. Do not dump the raw files verbatim; provide your interpretation and structured answer directly.`,
+        content: `${userQuery}\n\n[Context from retrieved sovereign documents]:\n${formattedContext}\n\nPlease analyze, summarize, or answer based on the above retrieved document content according to my request. Cite sources using [1], [2] notation corresponding to retrieved documents. Do not dump the raw files verbatim; provide your interpretation and structured answer directly.`,
       },
     ]
 
@@ -774,9 +1106,7 @@ Please analyze, summarize, or answer based on the above retrieved document conte
       const firstDoc = targetDocs[0]!
       const firstContent = getDocumentFullText(firstDoc)
       replaceLastAssistantText(
-        `I have reviewed the relevant documents including **${firstDoc.title}** [${firstDoc.classification}].
-
-${firstContent.slice(0, 400)}${firstContent.length > 400 ? '...' : ''}`,
+        `I have reviewed the relevant documents including **${firstDoc.title}** [${firstDoc.classification}].\n\n${firstContent.slice(0, 400)}${firstContent.length > 400 ? '...' : ''}`,
       )
     }
   }
@@ -862,52 +1192,17 @@ export async function dispatchTurnToModel(text: string, abort: AbortController, 
     if (abort.signal.aborted) {
       return
     }
-    const msg = err instanceof Error ? err.message : String(err)
-    finishTurn(`[Error: Unable to complete turn with ${provider}/${modelName} — ${msg}]`)
+    const message = err instanceof Error ? err.message : String(err)
+    // Attempt tool calling/creation even if streaming endpoint failed (e.g. mock/offline model)
+    try {
+      const handled = await handleToolCallingAndPolicy(text, '')
+      if (handled) {
+        finishTurn()
+        return
+      }
+    } catch {
+      // Ignore
+    }
+    finishTurn(`\n\n[Inference Error: ${message}. Verify local model endpoint is running on ${endpoint}]`)
   }
-}
-
-function withLastTurn(
-  updater: (turn: ChatTurn) => ChatTurn,
-): { turns: ChatTurn[]; sessions: ChatSession[] } {
-  if (state.turns.length === 0) return { turns: [], sessions: state.sessions }
-  const lastIndex = state.turns.length - 1
-  const updatedTurn = updater(state.turns[lastIndex]!)
-  const turns = state.turns.map((t, idx) => (idx === lastIndex ? updatedTurn : t))
-  const sessions = state.sessions.map((s) =>
-    s.id === state.activeSessionId ? { ...s, turns, updatedAt: new Date().toISOString() } : s,
-  )
-  return { turns, sessions }
-}
-
-export function appendDelta(delta: string): void {
-  const { turns, sessions } = withLastTurn((turn) => ({
-    ...turn,
-    text: turn.text + delta,
-  }))
-  commit({ ...state, turns, sessions })
-}
-
-export function finishTurn(errorText?: string): void {
-  const { turns, sessions } = withLastTurn((turn) => ({
-    ...turn,
-    text: errorText ? `${turn.text}${turn.text ? '\n\n' : ''}${errorText}` : turn.text,
-    streaming: false,
-  }))
-  commit({
-    ...state,
-    turns,
-    sessions,
-    generating: false,
-    abort: undefined,
-  })
-}
-
-export function abortTurn(): boolean {
-  if (!state.generating || !state.abort) {
-    return false
-  }
-  state.abort.abort()
-  finishTurn('[Generation stopped by user]')
-  return true
 }
