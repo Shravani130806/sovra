@@ -6,9 +6,9 @@
  */
 
 export const PRESET_PROMPTS: Record<string, string> = {
-  'document-analyst': `You are a document analyst for the Sovereign AI Workbench. You have access to the filesystem (tool-fs) for reading files and directories, and to an enterprise RAG system for retrieving information from ingested documents.
+  'document-analyst': `You are a document analyst for the Sovereign AI Workbench. You have access to the filesystem (tool-fs) for reading files and directories, creating documents, and to an enterprise RAG system for retrieving information from ingested documents.
 
-You do NOT have access to code execution, vision tools, web search, or any file modification capabilities. If the user asks for something outside these capabilities, explain what you can do instead.
+You do NOT have access to code execution, vision tools, or web search. If the user asks for something outside these capabilities, explain what you can do instead.
 
 Every tool call you make is policy-governed. The policy engine may deny tool calls based on data classification level and your role's clearance. If a tool call is denied, explain the policy restriction to the user clearly and do not retry the same call silently. The denial is final for that request.`,
 
@@ -44,13 +44,13 @@ export const DEFAULT_SOVEREIGN_SYSTEM_PROMPT = `You are SOVRA — Sovereign AI W
 /**
  * Builds the complete system prompt for a turn, incorporating the active preset
  * persona, sovereign document corpus metadata (without leaking unread content),
- * and direct chat attachments.
+ * tool calling specifications, and direct chat attachments.
  */
 export function buildTurnSystemPrompt(
   preset: string,
   corpusDocs: Array<{ title: string; classification: string; content?: string | undefined; chunks: number }>,
   _userQuery?: string,
-  chatAttachments?: Array<{ name: string; content?: string | undefined }>,
+  chatAttachments?: Array<{ name: string; content?: string | undefined }>
 ): string {
   const persona = PRESET_PROMPTS[preset] ?? DEFAULT_SOVEREIGN_SYSTEM_PROMPT
 
@@ -60,8 +60,36 @@ export function buildTurnSystemPrompt(
     for (const doc of corpusDocs) {
       corpusSection += `- Document: "${doc.title}" [Classification: ${doc.classification}, Chunks: ${doc.chunks}]\n`
     }
-    corpusSection += `\nImportant Policy Instruction: The content of documents stored in the Sovereign Document Corpus is NOT provided in this prompt and is governed by enterprise classification boundaries. You MUST use policy-governed tools (e.g. tool-fs read or RAG retrieval) to access or inspect any corpus document. When you need to read a corpus document, invoke the tool by outputting:\n\`\`\`json\n{\n  "tool": "read",\n  "path": "<document_title>"\n}\n\`\`\`\nDo not guess, fabricate, or simulate document contents without a tool call.\n`
   }
+
+  const toolInstructions = `\n\n[TOOL & ARTIFACT INSTRUCTIONS]
+Important Policy Instruction: You MUST use policy-governed tools to access or inspect any corpus document, or to generate deliverable artifacts:
+- To read or search documents in the Sovereign Document Corpus:
+\`\`\`json
+{
+  "tool": "read",
+  "path": "<document_title>"
+}
+\`\`\`
+- To create a Word document (.docx) or general document:
+\`\`\`json
+{
+  "tool": "create_document",
+  "title": "<filename.docx>",
+  "content": "<document text or markdown>",
+  "classification": "INTERNAL"
+}
+\`\`\`
+- To create an Excel spreadsheet (.xlsx):
+\`\`\`json
+{
+  "tool": "wb_generate_spreadsheet",
+  "title": "<filename.xlsx>",
+  "content": "<markdown table or csv rows>",
+  "classification": "INTERNAL"
+}
+\`\`\`
+When the user asks you to create, prepare, generate, write, export, or draft any document or spreadsheet, you MUST invoke the appropriate tool JSON block.`
 
   let attachmentsSection = ''
   if (chatAttachments && chatAttachments.length > 0) {
@@ -74,5 +102,5 @@ export function buildTurnSystemPrompt(
     }
   }
 
-  return `${persona}${corpusSection}${attachmentsSection}`
+  return `${persona}${corpusSection}${toolInstructions}${attachmentsSection}`
 }
