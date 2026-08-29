@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { asWbAuditEntryId } from '@mrpl/dsh-workbench-types'
-import { render, screen, fireEvent } from './render.tsx'
+import { render, screen, fireEvent, waitFor } from './render.tsx'
 import { ArtifactView } from '../src/client/components/ArtifactView.tsx'
 import { publishAuditEntry, resetWorkbenchState } from '../src/client/live/workbench-store.ts'
 
@@ -59,7 +59,7 @@ describe('ArtifactView', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it('clicking download triggers file blob download', () => {
+  it('clicking download triggers file blob download', async () => {
     const createObjectUrlSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock-url')
     const revokeObjectUrlSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
     const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
@@ -78,9 +78,12 @@ describe('ArtifactView', () => {
 
     render(<ArtifactView />)
     fireEvent.click(screen.getByText('Download'))
-    expect(createObjectUrlSpy).toHaveBeenCalled()
-    expect(clickSpy).toHaveBeenCalled()
-    expect(revokeObjectUrlSpy).toHaveBeenCalled()
+
+    await waitFor(() => {
+      expect(createObjectUrlSpy).toHaveBeenCalled()
+      expect(clickSpy).toHaveBeenCalled()
+      expect(revokeObjectUrlSpy).toHaveBeenCalled()
+    })
 
     createObjectUrlSpy.mockRestore()
     revokeObjectUrlSpy.mockRestore()

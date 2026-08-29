@@ -1,21 +1,15 @@
 /**
- * Live workbench state behind the non-chat panels.
+ * Live host-bound state for the SOVRA Workbench UI.
  *
- * `wb-ui` is a client plugin: it cannot hold `ctx.wbAudit` or `ctx.wbRag`
- * directly, because those live host-side. So each panel reads a store here,
- * and the host bridge (`../../host/bridge.ts`) publishes into it from the real
- * services — the same shape as `policy-store.ts`, which is already the
- * security indicator's seam.
+ * Keeps activity, citations and artifacts in memory, fed by host events,
+ * and notifies React views when anything changes.
  *
- * What changed: these panels previously read `useMock*` hooks returning
- * hardcoded pump-inspection fixtures, so the sources, artifacts and activity
- * a viewer saw were invented and identical in every session.
  * @module @mrpl/dsh-workbench-ui/client/live/workbench-store
  */
 
-import type { WbAuditEntry, WbCitation, WbDecisionKind } from '@mrpl/dsh-workbench-types'
+import type { WbAuditEntry, WbCitation } from '@mrpl/dsh-workbench-types'
 
-/** One row of the activity timeline. */
+/** One activity row shown in the activity panel. */
 export interface ActivityEntry {
   id: string
   at: string
@@ -33,6 +27,9 @@ export interface ArtifactEntry {
   /** Whether it was produced entirely on-premise. */
   isLocal: boolean
   sourceCount: number
+  content?: string | undefined
+  citations?: readonly WbCitation[] | undefined
+  classification?: string | undefined
 }
 
 /** What the composer needs to know about the session's policy posture. */
@@ -91,6 +88,9 @@ const ARTIFACT_KINDS: Readonly<Record<string, ArtifactEntry['kind']>> = {
   wb_generate_approval_note: 'approval_note',
   wb_generate_spreadsheet: 'spreadsheet',
   wb_generate_presentation: 'presentation',
+  create_document: 'report',
+  create_doc: 'report',
+  write: 'report',
 }
 
 /**
@@ -119,8 +119,17 @@ export function publishAuditEntry(entry: WbAuditEntry): void {
   if (entry.kind === 'tool_result') {
     const kind = typeof payload.name === 'string' ? ARTIFACT_KINDS[payload.name] : undefined
     if (kind) {
-      const value = (payload.value ?? {}) as { path?: unknown; citations?: unknown }
-      const path = typeof value.path === 'string' ? value.path : 'artifact'
+      const value = (payload.value ?? {}) as {
+        path?: unknown
+        citations?: unknown
+        content?: unknown
+        classification?: unknown
+      }
+      const path = typeof value.path === 'string' ? value.path : 'artifact.docx'
+      const content = typeof value.content === 'string' ? value.content : undefined
+      const classification = typeof value.classification === 'string' ? value.classification : undefined
+      const citations = Array.isArray(value.citations) ? (value.citations as WbCitation[]) : []
+
       artifacts = [
         {
           id: entry.id,
@@ -129,7 +138,10 @@ export function publishAuditEntry(entry: WbAuditEntry): void {
           // Artifacts are generated on-premise; the flag exists so a future
           // remote generator cannot appear indistinguishable from a local one.
           isLocal: true,
-          sourceCount: Array.isArray(value.citations) ? value.citations.length : 0,
+          sourceCount: citations.length,
+          content,
+          citations,
+          classification,
         },
         ...state.artifacts,
       ]
@@ -156,23 +168,25 @@ export function publishRetrievalCitations(citations: readonly WbCitation[]): voi
  * @param decision - the decision kind.
  * @param reason - the decision's reason, shown in the banner.
  */
-export function publishChatDecision(decision: WbDecisionKind, reason: string): void {
+export function publishChatDecision(decision: string, reason: string): void {
+  const isPolicyBlocked = decision === 'DENY'
+  const isApprovalRequired = decision === 'REQUIRE_APPROVAL'
   commit({
     ...state,
     chat: {
-      isPolicyBlocked: decision === 'DENY',
-      isApprovalRequired: decision === 'REQUIRE_APPROVAL',
+      isPolicyBlocked,
+      isApprovalRequired,
       blockReason: decision === 'ALLOW' ? '' : reason,
     },
   })
 }
 
 /**
- * Reset every panel.
- *
- * For session switches and tests: one session's sources, artifacts and
- * activity must never appear under another.
+ * Reset all panels to empty state (for tests and session teardown).
  */
-export function resetWorkbenchState(): void {
-  commit(INITIAL_STATE)
+export function resetWorkbench(): void {
+  state = INITIAL_STATE
+  for (const listener of listeners) listener()
 }
+
+export const resetWorkbenchState = resetWorkbench

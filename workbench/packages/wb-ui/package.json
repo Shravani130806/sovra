@@ -35,7 +35,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@mrpl/dsh-workbench-types": "workspace:*"
+    "@mrpl/dsh-workbench-types": "workspace:*",
+    "docx": "^9.7.1",
+    "exceljs": "^4.4.0"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
@@ -54,10 +56,10 @@
     "@testing-library/react": "^16.3.2",
     "@types/react": "~18.3.1",
     "@types/react-dom": "~18.3.0",
+    "@vitejs/plugin-react": "^4.0.0",
     "jsdom": "29.1.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "@vitejs/plugin-react": "^4.0.0",
     "vite": "^6.0.0",
     "vitest": "^4.1.8"
   },

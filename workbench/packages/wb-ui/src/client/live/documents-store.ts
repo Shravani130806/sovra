@@ -6,7 +6,7 @@
  * @module @mrpl/dsh-workbench-ui/client/live/documents-store
  */
 
-import type { WbClassification, WbDocumentId } from '@mrpl/dsh-workbench-types'
+import { asWbDocumentId, type WbClassification, type WbDocumentId } from '@mrpl/dsh-workbench-types'
 
 const STORAGE_KEY = 'sovra_wb_docs_v1'
 
@@ -281,14 +281,43 @@ export function completeUpload(id: string, document: CorpusDocument): void {
   })
 }
 
-/** Record a failed ingestion with the reason the pipeline gave. */
-export function failUpload(id: string, error: string): void {
-  commit({ ...state, uploads: patchUpload(id, { status: 'failed', error }) })
+/**
+ * Directly create and store a new document in the Sovereign Document Corpus.
+ */
+export function addCorpusDocument(doc: {
+  title: string
+  content: string
+  classification?: WbClassification | undefined
+}): CorpusDocument {
+  const classification = doc.classification ?? DEFAULT_CLASSIFICATION
+  const chunksData = createChunksFromText(doc.content)
+  const newDoc: CorpusDocument = {
+    id: asWbDocumentId(`doc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`),
+    title: doc.title,
+    classification,
+    declaredClassification: classification,
+    chunks: Math.max(1, chunksData.length),
+    content: doc.content,
+    chunksData,
+    ingestedAt: new Date().toISOString(),
+  }
+  registerChatAttachmentContent(doc.title, doc.content)
+  commit({
+    ...state,
+    documents: [newDoc, ...state.documents.filter((d) => d.id !== newDoc.id)],
+  })
+  return newDoc
 }
 
-/** Replace the corpus listing, for a full refresh. */
-export function setDocuments(documents: readonly CorpusDocument[]): void {
-  commit({ ...state, documents: [...documents] })
+export function failUpload(id: string, error: string): void {
+  commit({
+    ...state,
+    uploads: patchUpload(id, { status: 'failed', error }),
+  })
+}
+
+export function setDocuments(documents: CorpusDocument[]): void {
+  commit({ ...state, documents })
 }
 
 export function resetDocuments(clearStorage = false): void {
@@ -298,8 +327,9 @@ export function resetDocuments(clearStorage = false): void {
     try {
       window.localStorage.removeItem(STORAGE_KEY)
     } catch {
-      // ignore
+      // Ignore
     }
   }
-  commit(INITIAL_DOCUMENTS)
+  state = { documents: [], uploads: [] }
+  for (const listener of listeners) listener()
 }
