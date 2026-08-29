@@ -309,3 +309,30 @@ describe('wb-vision plugin', () => {
     })
   })
 })
+
+describe('diagnostics', () => {
+  it('no model output is reported as an unreachable model, not as bad JSON', async () => {
+    // These are different failures. Calling an empty stream "did not return
+    // the requested JSON" sends an operator to inspect the prompt when the
+    // real cause is almost always a model server that is not running.
+    const h = await harness()
+    h.setModelReply('')
+    const result = await callTool(h.ctx, 'wb_ocr_extract', {
+      image: PNG_1X1.toString('base64'),
+      mediaType: 'image/png',
+    })
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.error)).toMatch(/produced no output/)
+    expect(JSON.stringify(result.error)).toMatch(/ollama/)
+  })
+
+  it('bad-but-present output still reports as bad JSON', async () => {
+    const h = await harness()
+    h.setModelReply('I think it says PUMP P-101.')
+    const result = await callTool(h.ctx, 'wb_ocr_extract', {
+      image: PNG_1X1.toString('base64'),
+      mediaType: 'image/png',
+    })
+    expect(JSON.stringify(result.error)).toMatch(/did not return the requested JSON/)
+  })
+})

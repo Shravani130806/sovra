@@ -23,6 +23,7 @@
     "@mrpl/dsh-workbench-ingestion": "workspace:*",
     "@mrpl/dsh-workbench-artifacts": "workspace:*",
     "@mrpl/dsh-workbench-admin-console": "workspace:*",
-    "@mrpl/dsh-workbench-ollama": "workspace:*"
+    "@mrpl/dsh-workbench-ollama": "workspace:*",
+    "@deepseek-ai/dsh-attachment-local": "workspace:*"
   }
 }

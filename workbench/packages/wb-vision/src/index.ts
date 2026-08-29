@@ -128,6 +128,15 @@ function decodeBase64Image(encoded: string): Buffer {
  */
 function parseModelJson(raw: string): Record<string, unknown> {
   const trimmed = raw.trim()
+  if (trimmed === '') {
+    // No output at all is a different failure from bad output, and reporting
+    // it as "did not return the requested JSON" sends an operator looking at
+    // the prompt when the real cause is usually an unreachable model server.
+    throw new Error(
+      'vision model produced no output. Is the model server running and the model pulled? ' +
+        '(ollama serve; ollama pull <model>)',
+    )
+  }
   const start = trimmed.indexOf('{')
   const end = trimmed.lastIndexOf('}')
   if (start === -1 || end <= start) {

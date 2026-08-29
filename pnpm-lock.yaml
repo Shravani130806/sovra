@@ -9194,6 +9194,9 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
+      '@deepseek-ai/dsh-attachment-local':
+        specifier: workspace:*
+        version: link:../packages/attachment/attachment-local
       '@deepseek-ai/dsh-llm':
         specifier: workspace:*
         version: link:../packages/llm/llm
