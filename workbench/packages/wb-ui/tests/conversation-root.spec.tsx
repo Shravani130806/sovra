@@ -6,6 +6,7 @@ import { getNavigationState, navigate, resetNavigation } from '../src/client/liv
 import { resetDocuments } from '../src/client/live/documents-store.ts'
 import { resetVision } from '../src/client/live/vision-store.ts'
 import { resetWorkbenchState } from '../src/client/live/workbench-store.ts'
+import { resetModelsState } from '../src/client/live/models-store.ts'
 
 describe('ConversationRoot', () => {
   beforeEach(() => {
@@ -14,6 +15,7 @@ describe('ConversationRoot', () => {
     resetDocuments()
     resetVision()
     resetWorkbenchState()
+    resetModelsState()
   })
 
   it('renders ChatHomeView when there are no turns', () => {
@@ -27,6 +29,11 @@ describe('ConversationRoot', () => {
     render(<ConversationRoot />)
     expect(screen.queryByText('Good morning.')).toBeNull()
     expect(screen.getByText('What is the pressure limit?')).toBeDefined()
+  })
+
+  it('renders ModelSelector in the header', () => {
+    render(<ConversationRoot />)
+    expect(screen.getByRole('button', { name: /Current model/i })).toBeDefined()
   })
 
   it('reflects active preset in header and updates when preset changes', () => {

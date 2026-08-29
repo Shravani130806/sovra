@@ -11,13 +11,13 @@ describe('DocumentViewer', () => {
     resetNavigation()
   })
 
-  it('renders default document details when no specific document is open', () => {
+  it('renders not found state when no valid document is open', () => {
     render(<DocumentViewer />)
-    expect(screen.getByText('Engineering Safety Manual.pdf')).toBeDefined()
-    expect(screen.getByText('RESTRICTED')).toBeDefined()
+    expect(screen.getByText('Document Not Found')).toBeDefined()
+    expect(screen.getByText('The requested document was not found in the sovereign corpus.')).toBeDefined()
   })
 
-  it('renders targeted document metadata when documentId is selected', () => {
+  it('renders targeted document metadata and content when documentId is selected', () => {
     setDocuments([
       {
         id: asWbDocumentId('doc-101'),
@@ -25,21 +25,36 @@ describe('DocumentViewer', () => {
         classification: 'CONFIDENTIAL',
         declaredClassification: 'CONFIDENTIAL',
         chunks: 64,
+        chunksData: [
+          { id: 'c1', text: 'Step 1: Verify compressor valve seals.', page: 1, section: '3.2' },
+          { id: 'c2', text: 'Step 2: Inspect secondary pressure gauges.', page: 2, section: '3.3' },
+        ],
         ingestedAt: '2026-08-28T10:00:00.000Z',
       },
     ])
 
-    openDocument(asWbDocumentId('doc-101'), { page: 15, section: '3.2' })
+    openDocument(asWbDocumentId('doc-101'), { page: 1, section: '3.2' })
     render(<DocumentViewer />)
 
     expect(screen.getByText('Compressor Maintenance Guide.pdf')).toBeDefined()
-    expect(screen.getByText('CONFIDENTIAL')).toBeDefined()
-    expect(screen.getByText('Page 15 / 64')).toBeDefined()
-    expect(screen.getByText('Section 3.2')).toBeDefined()
-    expect(screen.getByText('Page 15 • Section 3.2')).toBeDefined()
+    expect(screen.getAllByText('CONFIDENTIAL').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('Page 1 / 64')).toBeDefined()
+    expect(screen.getByText('Target: 3.2')).toBeDefined()
+    expect(screen.getByText('Step 1: Verify compressor valve seals.')).toBeDefined()
+    expect(screen.getByText('doc-101')).toBeDefined()
   })
 
   it('back button navigates back to documents list', () => {
+    setDocuments([
+      {
+        id: asWbDocumentId('doc-101'),
+        title: 'Compressor Guide.pdf',
+        classification: 'INTERNAL',
+        declaredClassification: 'INTERNAL',
+        chunks: 1,
+        ingestedAt: '2026-08-28T10:00:00.000Z',
+      },
+    ])
     openDocument(asWbDocumentId('doc-101'))
     render(<DocumentViewer />)
 

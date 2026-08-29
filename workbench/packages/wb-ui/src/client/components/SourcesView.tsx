@@ -1,5 +1,6 @@
 import { useSourceCitations } from '../live/hooks.ts'
 import { openDocument } from '../live/navigation-store.ts'
+import type { WbCitation } from '@mrpl/dsh-workbench-types'
 import styles from './SourcesView.module.css'
 
 /** Where in a document a citation points, in words. */
@@ -9,8 +10,13 @@ function locatorOf(cite: { page?: number; section?: string }): string {
   return 'Full document'
 }
 
-export function SourcesView() {
-  const citations = useSourceCitations()
+export interface SourcesViewProps {
+  citations?: readonly WbCitation[] | undefined
+}
+
+export function SourcesView({ citations: propCitations }: SourcesViewProps = {}) {
+  const hookCitations = useSourceCitations()
+  const citations = propCitations ?? hookCitations
 
   // An answer with no retrieval has no sources panel at all, rather than an
   // empty one implying retrieval ran and found nothing.

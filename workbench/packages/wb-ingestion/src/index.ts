@@ -26,6 +26,7 @@ import {
   type WbPolicyService,
 } from '@mrpl/dsh-workbench-types'
 import * as fs from 'node:fs'
+import * as path from 'node:path'
 import * as crypto from 'node:crypto'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 
@@ -154,6 +155,10 @@ function chunkText(text: string, chunkSize: number, chunkOverlap: number): strin
 // ---------------------------------------------------------------------------
 
 function appendToIndex(indexPath: string, chunk: IndexChunk): void {
+  const dir = path.dirname(indexPath)
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true })
+  }
   const line = JSON.stringify(chunk) + '\n'
   // O_APPEND (set by appendFileSync) ensures atomic appends under PIPE_BUF
   // on Linux — same concurrency guarantee as wb-audit/src/index.ts:143.

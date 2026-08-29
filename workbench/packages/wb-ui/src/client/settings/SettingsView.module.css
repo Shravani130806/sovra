@@ -108,12 +108,209 @@
   line-height: 1.4;
 }
 
-.settingControl select {
-  background: var(--wb-bg-app);
-  border: 1px solid var(--wb-border-strong);
-  color: var(--wb-text-primary);
+.settingControl select,
+.settingControl input {
+  background: var(--wb-bg-app, #141414);
+  border: 1px solid var(--wb-border-strong, #444);
+  color: var(--wb-text-primary, #fff);
   padding: 0.4rem 0.75rem;
   border-radius: 4px;
   font-size: 0.85rem;
   outline: none;
+}
+
+.settingControl input {
+  min-width: 240px;
+}
+
+.actionBtn {
+  background: #3b82f6;
+  color: white;
+  border: none;
+  padding: 0.4rem 0.8rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  margin-top: 0.5rem;
+}
+
+.actionBtn:hover {
+  background: #2563eb;
+}
+
+.actionBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.statusSuccess {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: #4ade80;
+}
+
+.statusError {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: #f87171;
+}
+
+.modelCardList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.modelCard {
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 0.75rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modelName {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #fff;
+}
+
+.modelDetail {
+  font-size: 0.8rem;
+  color: #888;
+  margin-top: 2px;
+}
+
+.badge {
+  font-size: 0.7rem;
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.userGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.userCardItem {
+  background: var(--wb-bg-surface-hover);
+  border: 1px solid var(--wb-border-subtle);
+  border-radius: 8px;
+  padding: 1.2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  transition: all 0.15s ease;
+}
+
+.userCardItemActive {
+  border-color: var(--wb-color-sovereign, #3b82f6);
+  background: rgba(59, 130, 246, 0.05);
+}
+
+.userCardLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.userCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.userCardName {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--wb-text-primary);
+}
+
+.userCardRole {
+  font-size: 0.85rem;
+  color: var(--wb-text-secondary);
+}
+
+.userCardMeta {
+  font-size: 0.8rem;
+  color: var(--wb-text-muted, #71717a);
+}
+
+.clearanceRESTRICTED {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.clearanceCONFIDENTIAL {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.clearanceINTERNAL {
+  background-color: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.clearancePUBLIC {
+  background-color: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.activeUserBadge {
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.switchBtn {
+  background: var(--wb-bg-surface);
+  color: var(--wb-text-primary);
+  border: 1px solid var(--wb-border-strong);
+  padding: 0.4rem 0.85rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.switchBtn:hover {
+  background: var(--wb-bg-surface-hover);
+  border-color: var(--wb-color-sovereign, #3b82f6);
 }

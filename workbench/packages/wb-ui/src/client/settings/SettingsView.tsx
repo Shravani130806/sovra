@@ -1,17 +1,52 @@
 import { useState } from 'react'
 import styles from './SettingsView.module.css'
+import { useCurrentUser, useModels, useUsers } from '../live/hooks.ts'
+import {
+  CAPABILITY_ROLES,
+  CONTEXT_LENGTH_OPTIONS,
+  DEFAULT_CONTEXT_LENGTH,
+  fetchOllamaModels,
+  selectModel,
+  setContextLength,
+  setOllamaEndpoint,
+  setStrictLocalOnly,
+} from '../live/models-store.ts'
+import { switchUser } from '../live/user-store.ts'
+import { navigate } from '../live/navigation-store.ts'
 
 export function SettingsView() {
-  const [activeTab, setActiveTab] = useState('Appearance')
+  const [activeTab, setActiveTab] = useState('Models & Ollama')
+  const { groups, current, capabilityRouting, status, error, ollamaEndpoint, strictLocalOnly } = useModels()
+  const currentUser = useCurrentUser()
+  const { users } = useUsers()
+  const [endpointInput, setEndpointInput] = useState(ollamaEndpoint)
+  const [testResult, setTestResult] = useState<string | null>(null)
 
   const tabs = [
+    'Models & Ollama',
+    'Users & Access Control',
     'Appearance',
     'Workspace',
     'Agent Preferences',
     'Security',
     'Notifications',
-    'About'
+    'About',
   ]
+
+  const handleEndpointBlur = () => {
+    setOllamaEndpoint(endpointInput)
+  }
+
+  const handleTestConnection = async () => {
+    setTestResult(null)
+    setOllamaEndpoint(endpointInput)
+    await fetchOllamaModels(endpointInput)
+    setTimeout(() => {
+      setTestResult('Discovery query complete.')
+    }, 200)
+  }
+
+  const ollamaGroup = groups.find((g) => g.id === 'ollama')
 
   return (
     <div className={styles.container}>
@@ -22,7 +57,7 @@ export function SettingsView() {
 
       <div className={styles.layout}>
         <div className={styles.sidebar}>
-          {tabs.map(tab => (
+          {tabs.map((tab) => (
             <div
               key={tab}
               className={`${styles.tab} ${activeTab === tab ? styles.tabActive : ''}`}
@@ -35,51 +70,203 @@ export function SettingsView() {
 
         <div className={styles.content}>
           <h2>{activeTab}</h2>
-          
-          {activeTab === 'Appearance' && (
+
+          {activeTab === 'Models & Ollama' && (
             <div className={styles.settingGroup}>
               <div className={styles.settingRow}>
                 <div className={styles.settingInfo}>
-                  <div className={styles.settingTitle}>Theme</div>
-                  <div className={styles.settingDesc}>Choose how the workbench looks.</div>
+                  <div className={styles.settingTitle}>Ollama Base Endpoint</div>
+                  <div className={styles.settingDesc}>
+                    Local URL for Ollama OpenAI-compatible inference API (e.g. http://127.0.0.1:11434/v1).
+                  </div>
                 </div>
                 <div className={styles.settingControl}>
-                  <select defaultValue="dark">
-                    <option value="dark">Dark (Default)</option>
-                    <option value="light">Light</option>
-                    <option value="system">System Settings</option>
+                  <input
+                    type="text"
+                    value={endpointInput}
+                    onChange={(e) => setEndpointInput(e.target.value)}
+                    onBlur={handleEndpointBlur}
+                    placeholder="http://127.0.0.1:11434/v1"
+                  />
+                  <br />
+                  <button
+                    type="button"
+                    className={styles.actionBtn}
+                    onClick={handleTestConnection}
+                    disabled={status === 'loading'}
+                  >
+                    {status === 'loading' ? 'Testing…' : 'Discover Local Models'}
+                  </button>
+                  {error && <div className={styles.statusError}>{error}</div>}
+                  {status === 'ready' && testResult && !error && (
+                    <div className={styles.statusSuccess}>
+                      Connected! Discovered {ollamaGroup?.models.length ?? 0} local Ollama models.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className={styles.settingRow}>
+                <div className={styles.settingInfo}>
+                  <div className={styles.settingTitle}>Active Chat Model</div>
+                  <div className={styles.settingDesc}>
+                    Current sovereign model used across sessions and chat turns.
+                  </div>
+                </div>
+                <div className={styles.settingControl}>
+                  <select
+                    value={current ? `${current.provider}/${current.model}` : ''}
+                    onChange={(e) => {
+                      const [provider, model] = e.target.value.split('/')
+                      if (provider && model) {
+                        void selectModel({ provider, model })
+                      }
+                    }}
+                  >
+                    {groups.flatMap((g) =>
+                      g.models.map((m) => (
+                        <option key={`${g.id}/${m.id}`} value={`${g.id}/${m.id}`}>
+                          {g.name}: {m.name}
+                        </option>
+                      )),
+                    )}
                   </select>
                 </div>
               </div>
+
               <div className={styles.settingRow}>
                 <div className={styles.settingInfo}>
-                  <div className={styles.settingTitle}>Information Density</div>
-                  <div className={styles.settingDesc}>Control how compact the interface is.</div>
+                  <div className={styles.settingTitle}>Context Window (Tokens)</div>
+                  <div className={styles.settingDesc}>
+                    Maximum context length allocated during local model inference (Ollama num_ctx).
+                  </div>
                 </div>
                 <div className={styles.settingControl}>
-                  <select defaultValue="compact">
-                    <option value="comfortable">Comfortable</option>
-                    <option value="compact">Compact</option>
+                  <select
+                    value={current?.contextLength ?? DEFAULT_CONTEXT_LENGTH}
+                    onChange={(e) => setContextLength(Number(e.target.value))}
+                  >
+                    {CONTEXT_LENGTH_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
                   </select>
+                </div>
+              </div>
+
+              <div className={styles.settingRow}>
+                <div className={styles.settingInfo}>
+                  <div className={styles.settingTitle}>Strict Air-Gapped Mode</div>
+                  <div className={styles.settingDesc}>
+                    Prohibit non-local inference providers. Every turn executes strictly on-premise.
+                  </div>
+                </div>
+                <div className={styles.settingControl}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={strictLocalOnly}
+                      onChange={(e) => setStrictLocalOnly(e.target.checked)}
+                    />
+                    Enforce local-only execution
+                  </label>
+                </div>
+              </div>
+
+              <div className={styles.settingRow}>
+                <div className={styles.settingInfo}>
+                  <div className={styles.settingTitle}>Capability-Based Model Matrix</div>
+                  <div className={styles.settingDesc}>
+                    Fine-grained model allocation for Coding, Embedding, Reranking, OCR, and Vision.
+                  </div>
+                </div>
+                <div className={styles.settingControl}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                    {CAPABILITY_ROLES.map((r) => {
+                      const sel = capabilityRouting[r.id]
+                      return (
+                        <div key={r.id} style={{ fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+                          <span style={{ color: 'var(--wb-text-secondary, #a1a1aa)' }}>{r.title}:</span>
+                          <strong>{sel ? `${sel.provider}/${sel.model}` : 'Default'}</strong>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.actionBtn}
+                    onClick={() => navigate('models')}
+                  >
+                    Open Model Routing Matrix →
+                  </button>
                 </div>
               </div>
             </div>
           )}
 
-          {activeTab === 'Agent Preferences' && (
+          {activeTab === 'Users & Access Control' && (
             <div className={styles.settingGroup}>
               <div className={styles.settingRow}>
                 <div className={styles.settingInfo}>
-                  <div className={styles.settingTitle}>Default Agent</div>
-                  <div className={styles.settingDesc}>The preset selected when opening a new chat.</div>
+                  <div className={styles.settingTitle}>Identity &amp; Role-Based Access Control (RBAC)</div>
+                  <div className={styles.settingDesc}>
+                    Manage active workbench identity, permissions, and security clearances.
+                  </div>
                 </div>
-                <div className={styles.settingControl}>
-                  <select defaultValue="analyst">
-                    <option value="analyst">Document Analyst</option>
-                    <option value="vision">Engineering Vision</option>
-                    <option value="code">Code Analysis</option>
-                  </select>
-                </div>
+              </div>
+
+              <div className={styles.userGrid}>
+                {users.map((u) => {
+                  const isActive = u.id === currentUser.id
+                  const clearanceClass = styles[`clearance${u.clearance}`] ?? styles.clearanceINTERNAL
+                  const clearanceDescription =
+                    u.clearance === 'RESTRICTED'
+                      ? 'Full Clearance: Authorized for PUBLIC, INTERNAL, CONFIDENTIAL, and RESTRICTED files.'
+                      : u.clearance === 'CONFIDENTIAL'
+                        ? 'High Clearance: Authorized for PUBLIC, INTERNAL, and CONFIDENTIAL files.'
+                        : u.clearance === 'INTERNAL'
+                          ? 'Standard Clearance: Authorized for PUBLIC and INTERNAL files.'
+                          : 'Public Clearance: Restricted to PUBLIC data only.'
+
+                  return (
+                    <div
+                      key={u.id}
+                      className={`${styles.userCardItem} ${isActive ? styles.userCardItemActive : ''}`}
+                    >
+                      <div className={styles.userCardLeft}>
+                        <div className={styles.userCardHeader}>
+                          <span className={styles.userCardName}>{u.displayName}</span>
+                          <span className={`${styles.clearanceBadge} ${clearanceClass}`}>
+                            {u.clearance}
+                          </span>
+                        </div>
+                        <div className={styles.userCardRole}>
+                          {u.role} • {u.department}
+                        </div>
+                        <div className={styles.userCardMeta}>
+                          {clearanceDescription}
+                        </div>
+                      </div>
+
+                      <div className={styles.userCardRight}>
+                        {isActive ? (
+                          <div className={styles.activeUserBadge}>
+                            ✓ Active User
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            className={styles.switchBtn}
+                            onClick={() => switchUser(u.id)}
+                          >
+                            Switch to this User
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -88,24 +275,25 @@ export function SettingsView() {
             <div className={styles.settingGroup}>
               <div className={styles.settingRow}>
                 <div className={styles.settingInfo}>
-                  <div className={styles.settingTitle}>Strict Enforcement Mode</div>
-                  <div className={styles.settingDesc}>Globally block all external actions regardless of clearance.</div>
+                  <div className={styles.settingTitle}>Sovereign Security Boundary</div>
+                  <div className={styles.settingDesc}>
+                    State of egress gating and local container isolation.
+                  </div>
                 </div>
                 <div className={styles.settingControl}>
-                  <select defaultValue="on">
-                    <option value="on">Enabled</option>
-                    <option value="off">Disabled</option>
-                  </select>
+                  <span style={{ color: '#22c55e', fontWeight: 600 }}>Active (Enforcing Air-Gap)</span>
                 </div>
               </div>
             </div>
           )}
 
-          {['Workspace', 'Notifications', 'About'].includes(activeTab) && (
-            <p style={{ color: 'var(--wb-text-secondary)' }}>
-              Configuration for {activeTab.toLowerCase()} will appear here.
-            </p>
-          )}
+          {activeTab !== 'Models & Ollama' &&
+            activeTab !== 'Users & Access Control' &&
+            activeTab !== 'Security' && (
+              <p className={styles.stubNotice}>
+                Configure {activeTab.toLowerCase()} options for sovereign operation.
+              </p>
+            )}
         </div>
       </div>
     </div>

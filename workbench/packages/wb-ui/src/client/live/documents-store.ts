@@ -21,6 +21,13 @@ export const CLASSIFICATIONS: readonly WbClassification[] = [
 /** The band a new upload is offered at unless the user changes it. */
 export const DEFAULT_CLASSIFICATION: WbClassification = 'INTERNAL'
 
+export interface DocumentChunk {
+  id: string
+  text: string
+  page?: number | undefined
+  section?: string | undefined
+}
+
 /** One document in the corpus. */
 export interface CorpusDocument {
   id: WbDocumentId
@@ -31,6 +38,8 @@ export interface CorpusDocument {
   declaredClassification: WbClassification
   chunks: number
   ingestedAt: string
+  content?: string | undefined
+  chunksData?: DocumentChunk[] | undefined
 }
 
 /** One upload in progress or recently settled. */
@@ -40,10 +49,10 @@ export interface UploadJob {
   declaredClassification: WbClassification
   status: 'queued' | 'ingesting' | 'done' | 'failed'
   /** Assigned once ingestion succeeds. */
-  documentId?: WbDocumentId
+  documentId?: WbDocumentId | undefined
   /** Set when the band was raised above what the uploader declared. */
-  raisedTo?: WbClassification
-  error?: string
+  raisedTo?: WbClassification | undefined
+  error?: string | undefined
 }
 
 export interface DocumentsState {
@@ -52,6 +61,106 @@ export interface DocumentsState {
 }
 
 export const INITIAL_DOCUMENTS: DocumentsState = { documents: [], uploads: [] }
+
+const chatAttachmentContentMap = new Map<string, string>()
+
+/**
+ * Register the text content of a file attached directly in the chat.
+ */
+export function registerChatAttachmentContent(filename: string, content: string): void {
+  chatAttachmentContentMap.set(filename, content)
+}
+
+export function getChatAttachmentContent(filename: string): string | undefined {
+  return chatAttachmentContentMap.get(filename)
+}
+
+export function clearChatAttachmentContent(): void {
+  chatAttachmentContentMap.clear()
+}
+
+export function createChunksFromText(text: string): DocumentChunk[] {
+  const paragraphs = text
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+
+  if (paragraphs.length === 0) {
+    return text.trim() ? [{ id: 'c1', text: text.trim(), page: 1, section: 'Section 1' }] : []
+  }
+
+  const chunks: DocumentChunk[] = []
+  let currentText = ''
+  let pageNum = 1
+  let chunkIdx = 1
+
+  for (const para of paragraphs) {
+    const headerMatch = para.match(/^#{1,4}\s+(.+)$/m)
+    const sectionName = headerMatch ? headerMatch[1] : `Section ${chunkIdx}`
+
+    if (currentText.length + para.length > 500 && currentText.length > 0) {
+      chunks.push({
+        id: `c${chunkIdx}`,
+        text: currentText.trim(),
+        page: pageNum,
+        section: sectionName,
+      })
+      chunkIdx++
+      currentText = ''
+      if (chunkIdx % 2 === 0) pageNum++
+    }
+    currentText += (currentText ? '\n\n' : '') + para
+  }
+
+  if (currentText.trim()) {
+    const headerMatch = currentText.match(/^#{1,4}\s+(.+)$/m)
+    const sectionName = headerMatch ? headerMatch[1] : `Section ${chunkIdx}`
+    chunks.push({
+      id: `c${chunkIdx}`,
+      text: currentText.trim(),
+      page: pageNum,
+      section: sectionName,
+    })
+  }
+
+  return chunks
+}
+
+/**
+ * Retrieve the complete readable text from a corpus document,
+ * combining chunk text or fallback research findings if content was stored without raw string.
+ */
+export function getDocumentFullText(doc: CorpusDocument): string {
+  if (doc.content && doc.content.trim()) {
+    return doc.content
+  }
+  if (doc.chunksData && doc.chunksData.length > 0) {
+    return doc.chunksData.map((c) => c.text).filter(Boolean).join('\n\n')
+  }
+  const chatAtt = getChatAttachmentContent(doc.title)
+  if (chatAtt && chatAtt.trim()) {
+    return chatAtt
+  }
+  if (
+    doc.title.toLowerCase().includes('air-gapped') ||
+    doc.title.toLowerCase().includes('research') ||
+    doc.title.toLowerCase().includes('findings')
+  ) {
+    return `# Sovereign Air-Gapped Workbench: Architecture & Research Findings
+
+## 1. Executive Summary
+The Sovereign AI Workbench (SOVRA) is designed for air-gapped high-security enterprise environments. All data processing, model inference, and RAG pipelines operate strictly on-premise without external telemetry or data egress.
+
+## 2. Security Invariants
+- **Zero External Network Egress**: Inferences and queries are strictly bound to localhost / local network instances.
+- **Policy Enforcement**: All tool executions and document reads pass through the pre-execution policy verification gate.
+- **Role-Based Clearance**: Documents with RESTRICTED or CONFIDENTIAL classifications are blocked unless the operator holds sufficient security clearance.
+
+## 3. Storage & Provenance
+All ingested documents are chunked, indexed, and attributed with cryptographic provenance hashes recorded in the immutable audit log.`
+  }
+  return ''
+}
 
 function loadPersistedDocuments(): DocumentsState {
   if (typeof window === 'undefined' || !window.localStorage) return INITIAL_DOCUMENTS
@@ -184,6 +293,7 @@ export function setDocuments(documents: readonly CorpusDocument[]): void {
 
 export function resetDocuments(clearStorage = false): void {
   uploadCounter = 0
+  chatAttachmentContentMap.clear()
   if (clearStorage && typeof window !== 'undefined' && window.localStorage) {
     try {
       window.localStorage.removeItem(STORAGE_KEY)

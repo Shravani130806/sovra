@@ -10,6 +10,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import type {
   WbRagService,
   WbRagResult,
@@ -60,7 +61,7 @@ export interface Config {
 }
 
 export const Config: z<Config> = z.object({
-  indexPath: z.string(),
+  indexPath: z.string().default('$DSH_HOME/workbench/vector-index'),
 })
 
 /** Sentinel for WbPolicyRequest.agentPreset — retrieve() has no preset parameter. */
@@ -141,6 +142,12 @@ export function apply(ctx: Context, config: Config) {
   ctx.effect(() => {
     ctx.wbRag = {
       async retrieve(query: string, user: WbUser, sessionId: WbSessionId): Promise<WbRagResult> {
+        const expandedIndexPath = (config.indexPath || '$DSH_HOME/workbench/vector-index').replace(
+          '$DSH_HOME',
+          resolveDshHome(),
+        )
+
+        // 1. Embed query via wb-model-gateway
         // 1. Embed the query. `ctx.wbEmbeddings` is the real seam; the
         // gateway is still consulted so a misrouted capability fails the same
         // way it always did. Falling back to the lexical hash keeps a
@@ -153,7 +160,7 @@ export function apply(ctx: Context, config: Config) {
           : generateEmbedding(query)
 
         // 2. Query the on-disk vector index
-        const candidates = readIndex(config.indexPath)
+        const candidates = readIndex(expandedIndexPath)
         const topCandidates = search(candidates, queryEmbedding, 20)
 
         // 3. Authorize BEFORE reranking (DESIGN.md §9 invariant 2)

@@ -24,7 +24,9 @@
     "test:watch": "vitest watch"
   },
   "dependencies": {
-    "@mrpl/dsh-workbench-types": "workspace:*"
+    "@mrpl/dsh-workbench-types": "workspace:*",
+    "@deepseek-ai/schemastery": "workspace:*",
+    "@deepseek-ai/dsh-home-paths": "workspace:*"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:*"

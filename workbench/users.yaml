@@ -1,0 +1,56 @@
+- principal: "doc-analyst"
+  id: "user-operator"
+  displayName: "Sakshi (Analyst)"
+  department: "Engineering"
+  role: "engineer"
+  clearance: "INTERNAL"
+  allowedAgentPresets:
+    - "document-analyst"
+    - "research"
+  allowedToolCategories:
+    - "local"
+    - "enterprise"
+  networkPermissions: []
+
+- principal: "restricted-analyst"
+  id: "user-restricted"
+  displayName: "Vikram (Lead Security Officer)"
+  department: "Security & Intelligence"
+  role: "security_officer"
+  clearance: "RESTRICTED"
+  allowedAgentPresets:
+    - "document-analyst"
+    - "research"
+    - "engineering-vision"
+    - "code-analysis"
+    - "artifact"
+  allowedToolCategories:
+    - "local"
+    - "enterprise"
+  networkPermissions: []
+
+- principal: "priya-research"
+  id: "user-priya"
+  displayName: "Priya (Senior Research Lead)"
+  department: "Research & Development"
+  role: "researcher"
+  clearance: "CONFIDENTIAL"
+  allowedAgentPresets:
+    - "document-analyst"
+    - "research"
+  allowedToolCategories:
+    - "local"
+    - "enterprise"
+  networkPermissions: []
+
+- principal: "public-operator"
+  id: "user-guest"
+  displayName: "Guest Operator"
+  department: "Operations"
+  role: "operator"
+  clearance: "PUBLIC"
+  allowedAgentPresets:
+    - "document-analyst"
+  allowedToolCategories:
+    - "local"
+  networkPermissions: []

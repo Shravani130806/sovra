@@ -1,5 +1,5 @@
 .composerWrapper {
-  max-width: 800px;
+  max-width: 840px;
   margin: 0 auto;
   width: 100%;
   display: flex;
@@ -56,46 +56,53 @@
 
 .composerInner {
   display: flex;
-  align-items: flex-end;
-  background-color: var(--dsh-theme-bg-surface, #1e1e1e);
-  border: 1px solid var(--dsh-theme-border, #333);
+  align-items: center;
+  background-color: var(--dsh-theme-bg-surface, #1b1b22);
+  border: 1px solid var(--dsh-theme-border, #2d2d38);
   border-radius: 12px;
-  padding: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-  transition: border-color 0.2s ease;
+  padding: 6px 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .composerInner:focus-within {
-  border-color: #555;
+  border-color: var(--wb-accent, #3b82f6);
+  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.2);
 }
 
 .composerControls {
   display: flex;
-  padding: 4px;
+  align-items: center;
+  padding: 2px;
+  flex-shrink: 0;
 }
 
-.textarea {
+.textarea,
+.input {
   flex: 1;
-  background: transparent;
-  border: none;
-  color: var(--dsh-theme-text-primary, #ffffff);
+  background: transparent !important;
+  border: none !important;
+  color: var(--dsh-theme-text-primary, #ffffff) !important;
   font-family: inherit;
-  font-size: 15px;
+  font-size: 14px;
   resize: none;
   padding: 8px 12px;
   min-height: 24px;
-  max-height: 200px;
-  outline: none;
+  max-height: 180px;
+  outline: none !important;
   line-height: 1.5;
+  box-sizing: border-box;
 }
 
-.textarea::placeholder {
-  color: var(--dsh-theme-text-secondary, #999);
+.textarea::placeholder,
+.input::placeholder {
+  color: var(--dsh-theme-text-secondary, #737380);
 }
 
 .composerActions {
   display: flex;
-  padding: 4px;
+  align-items: center;
+  padding: 2px;
 }
 
 .iconButton {
@@ -107,32 +114,66 @@
   border-radius: 8px;
   background: transparent;
   border: none;
-  color: var(--dsh-theme-text-secondary, #999);
+  color: var(--dsh-theme-text-secondary, #9ea3ae);
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .iconButton:hover {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: rgba(255, 255, 255, 0.08);
   color: var(--dsh-theme-text-primary, #ffffff);
 }
 
-.sendButton {
+.sendButton,
+.buttonSend {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background-color: var(--dsh-theme-bg-primary, #ffffff);
+  background-color: var(--wb-accent, #3b82f6);
   border: none;
-  color: #000000;
+  color: #ffffff;
+  font-size: 14px;
   cursor: pointer;
   transition: all 0.2s ease;
+  flex-shrink: 0;
 }
 
-.sendButton:hover {
-  opacity: 0.9;
+.sendButton:hover:not(:disabled),
+.buttonSend:hover:not(:disabled) {
+  background-color: var(--wb-accent-hover, #2563eb);
+  transform: scale(1.05);
+}
+
+.sendButton:disabled,
+.buttonSend:disabled {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.25);
+  cursor: not-allowed;
+}
+
+.stopButton,
+.buttonStop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #ef4444;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.stopButton:hover,
+.buttonStop:hover {
+  background: rgba(239, 68, 68, 0.3);
   transform: scale(1.05);
 }
 
@@ -145,8 +186,8 @@
 /* Policy banner — the composer's half of making governance visible. */
 .policyBanner {
   margin: 0 0 8px;
-  padding: 7px 12px;
-  border-radius: 6px;
+  padding: 8px 12px;
+  border-radius: 8px;
   font-size: 13px;
   font-weight: 500;
 }
@@ -161,9 +202,4 @@
   background: rgba(224, 160, 82, 0.14);
   border: 1px solid rgba(224, 160, 82, 0.3);
   color: #e0a052;
-}
-
-.stopButton {
-  background: rgba(242, 140, 134, 0.18);
-  color: #f28c86;
 }

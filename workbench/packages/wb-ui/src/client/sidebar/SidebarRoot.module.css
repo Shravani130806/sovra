@@ -119,30 +119,153 @@
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  position: relative;
 }
 
-.userArea {
+.userCard {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem;
+  background: var(--wb-bg-surface-hover);
+  border: 1px solid var(--wb-border-subtle);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.userCard:hover {
+  border-color: var(--wb-border-strong);
+}
+
+.userMeta {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  cursor: pointer;
-  padding: 0.5rem;
-  border-radius: 6px;
-  transition: background-color 0.15s ease;
+  overflow: hidden;
 }
 
-.userArea:hover {
-  background-color: var(--wb-bg-surface-hover);
+.userNameRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .userName {
-  font-weight: 500;
+  font-weight: 600;
   font-size: 0.85rem;
   color: var(--wb-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .userRole {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
+  color: var(--wb-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.clearanceBadge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+
+.clearanceRESTRICTED {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.clearanceCONFIDENTIAL {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.clearanceINTERNAL {
+  background-color: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+.clearancePUBLIC {
+  background-color: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.switchIcon {
+  font-size: 0.85rem;
+  color: var(--wb-text-secondary);
+  padding: 0 4px;
+}
+
+.userMenuPopover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 1rem;
+  right: 1rem;
+  background-color: var(--wb-bg-surface);
+  border: 1px solid var(--wb-border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  padding: 0.5rem;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.userMenuTitle {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--wb-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.25rem 0.5rem;
+}
+
+.userMenuItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.userMenuItem:hover {
+  background-color: var(--wb-bg-surface-hover);
+}
+
+.userMenuItemActive {
+  background-color: var(--wb-bg-surface-hover);
+  border: 1px solid var(--wb-color-sovereign);
+}
+
+.userMenuDetails {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.userMenuName {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--wb-text-primary);
+}
+
+.userMenuRole {
+  font-size: 0.72rem;
   color: var(--wb-text-secondary);
 }
 
