@@ -247,6 +247,7 @@
       "@mrpl/dsh-workbench-vision": ["./workbench/packages/wb-vision/src/index.ts"],
       "@mrpl/dsh-workbench-tool-gateway": ["./workbench/packages/wb-tool-gateway/src/index.ts"],
       "@mrpl/dsh-workbench-ingestion": ["./workbench/packages/wb-ingestion/src/index.ts"],
+      "@mrpl/dsh-workbench-ollama": ["./workbench/packages/wb-ollama/src/index.ts"],
       "@deepseek-ai/dsh-*": [
         "./packages/core/*/src",
         "./packages/prompt/*/src",

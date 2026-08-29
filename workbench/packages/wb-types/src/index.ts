@@ -239,6 +239,37 @@ export interface WbAuditService {
   subscribe(listener: (entry: WbAuditEntry) => void): () => void
 }
 
+/**
+ * Turns text into vectors for retrieval.
+ *
+ * A separate seam from `ctx.llm` because the harness LLM capability is
+ * chat-only — `GenerateOptions`/`StreamChunk` describe a conversation, and
+ * nothing behind `resolve('embedding')` could ever service it. Without this,
+ * `wb-rag` and `wb-ingestion` had no embedding to call and both fell back to a
+ * hash of the text, which is why retrieval was lexical rather than semantic.
+ */
+export interface WbEmbeddingsService {
+  /**
+   * Embed one or more texts.
+   *
+   * Batched because ingestion embeds every chunk of a document: a per-chunk
+   * round trip would dominate ingest time for a large corpus.
+   * @param texts - the texts to embed, in order.
+   * @param signal - caller cancellation.
+   * @returns one vector per input, in the same order.
+   * @throws when the model host is unreachable or the model is not pulled.
+   */
+  embed(texts: readonly string[], signal?: AbortSignal): Promise<number[][]>
+  /**
+   * Dimensionality of the vectors this provider returns.
+   *
+   * An index written with one model cannot be read with another: comparing
+   * vectors of different provenance yields plausible numbers and meaningless
+   * rankings.
+   */
+  dimensions(): Promise<number>
+}
+
 export interface WbModelGatewayService {
   resolve(capability: WbModelCapability): WbModelHandle
 }
